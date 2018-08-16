@@ -181,6 +181,19 @@ dcl-pr stomp_setTimeout extproc('stomp_setTimeout');
 end-pr;
 
 ///
+// Set virtual host
+//
+// Sets the virtual host. This is an optional connect header.
+//
+// \param Client
+// \param Virtual Host
+///
+dcl-pr stomp_setVirtualHost extproc('stomp_setVirtualHost');
+  conn pointer const;
+  virtualHost varchar(100) const;
+end-pr;
+
+///
 // Set client id
 //
 // Sets the client id. This value is needed for a durable topic subscription.
@@ -416,6 +429,7 @@ dcl-s stomp_receiptid_t varchar(50) template;
 dcl-c STOMP_ACK_MODE_AUTO 'auto';
 dcl-c STOMP_ACK_MODE_CLIENT 'client';
 dcl-c STOMP_OPTION_TIMEOUT 1;
+dcl-c STOMP_OPTION_VIRTUAL_HOST 'host';
 dcl-c STOMP_OPTION_CLIENT_ID 2;
 dcl-c STOMP_OPTION_ACK 3;
 dcl-c STOMP_OPTION_PERSISTENT 4;

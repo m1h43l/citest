@@ -1,0 +1,324 @@
+**FREE
+
+
+ctl-opt nomain;
+
+/include 'ifsio_h.rpgle'
+/include 'libc_h.rpgle'
+/include 'stompframe_h.rpgle'
+/include 'stompparser_h.rpgle'
+/include RPGUNIT/QINCLUDE,TESTCASE
+
+dcl-s NULL char(1) inz(x'00');
+dcl-s EOL char(1) ccsid(*utf8) inz(x'0A');
+dcl-s COLON char(1) ccsid(*utf8) inz(x'3A');
+dcl-s CRLF char(2) ccsid(*utf8) inz(x'0D0A');
+
+
+dcl-proc test_parser_commandOnly export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'CONNECT' + EOL + EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  assert(frame <> *null : 'Frame nicht erstellt');
+  aEqual('CONNECT' : stomp_frame_getCommand(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_invalidCommand export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'CONNECTO' + EOL + EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  monitor;
+    frame = stomp_frame_parse(string);
+    fail('Frame trotz unÅgltigem Command erstellt');
+  on-error *all;
+  endmon;
+end-proc;
+
+
+dcl-proc test_parser_singleHeader export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'BEGIN' + EOL + 
+         'transaction:tx1' + EOL +
+         EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  assert(frame <> *null : 'Frame nicht erstellt');
+  aEqual('BEGIN' : stomp_frame_getCommand(frame));
+  aEqual('tx1' : stomp_frame_getHeaderValue(frame : 'transaction'));
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_multipleHeaders export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SUBSCRIBE' + EOL + 
+         'id:0' + EOL +
+         'destination:/queue/item' + EOL +
+         'ack:client' + EOL +
+         EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  assert(frame <> *null : 'Frame nicht erstellt');
+  aEqual('SUBSCRIBE' : stomp_frame_getCommand(frame));
+  aEqual('0' : stomp_frame_getHeaderValue(frame : 'id'));
+  aEqual('/queue/item' : stomp_frame_getHeaderValue(frame : 'destination'));
+  aEqual('client' : stomp_frame_getHeaderValue(frame : 'ack'));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_multipleSameHeaders export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SUBSCRIBE' + EOL + 
+         'id:0' + EOL +
+         'destination:/queue/item' + EOL +
+         'ack:client' + EOL +
+         'host:debfml02' + EOL + 
+         'host:devil01' + EOL + 
+         EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  assert(frame <> *null : 'Frame nicht erstellt');
+  aEqual('devil01' : stomp_frame_getHeaderValue(frame : 'host'));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_multiByteHeaderValueChars export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SUBSCRIBE' + EOL + 
+         'id:0' + EOL +
+         'destination:/queue/item' + EOL +
+         'ack:client' + EOL +
+         'comment:UmlauteÑîÅ·' + EOL +
+         EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  assert(frame <> *null : 'Frame nicht erstellt');
+  aEqual('UmlauteÑîÅ·' : stomp_frame_getHeaderValue(frame : 'comment'));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_multiByteHeaderKeyChars export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SUBSCRIBE' + EOL + 
+         'id:0' + EOL +
+         'destination:/queue/item' + EOL +
+         'ack:client' + EOL +
+         '360¯:Skating' + EOL +
+         EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  assert(frame <> *null : 'Frame nicht erstellt');
+  aEqual('Skating' : stomp_frame_getHeaderValue(frame : '360¯'));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_preserveHeaderWhitespace export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SUBSCRIBE' + EOL + 
+         ' id : 0 ' + EOL +
+         EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  aEqual(' 0 ' : stomp_frame_getHeaderValue(frame : ' id '));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_emptyBody export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'CONNECT' + EOL + EOL + NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  aEqual('' : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_simpleBody export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SEND' + EOL + 
+         EOL + 
+         'Artikel 0815' +
+         NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  aEqual('Artikel 0815' : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_multiByteCharBody export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SEND' + EOL + 
+         EOL + 
+         '360¯ Skating' +
+         NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  aEqual('360¯ Skating' : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_jsonBody export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SEND' + EOL + 
+         EOL + 
+         '{ "item" : "0815" , "name" : "360¯ Skating" }' +
+         NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  aEqual('{ "item" : "0815" , "name" : "360¯ Skating" }' : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_getBody export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  dcl-ds body likeds(stomp_string);
+  dcl-s result varchar(1000) ccsid(*utf8);
+  
+  data = 'SEND' + EOL + 
+         EOL + 
+         '{ "item" : "0815" , "name" : "360¯ Skating" }' +
+         NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  body = stomp_frame_getBody(frame);
+  
+  %len(result) = body.length;
+  memcpy(%addr(result : *data) : body.value : body.length);
+  
+  aEqual('{ "item" : "0815" , "name" : "360¯ Skating" }' : result);
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_bodyLargerThanContentLength export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SEND' + EOL + 
+         'content-length:11' + EOL +
+         EOL + 
+         '{ "item" : "0815" , "name" : "360¯ Skating" }' +
+         NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  aEqual('{ "item" :' : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_parser_bodyWithNullValues export;
+  dcl-s frame pointer;
+  dcl-ds string likeds(stomp_string);
+  dcl-s data varchar(1000) ccsid(*utf8);
+  
+  data = 'SEND' + EOL + 
+         'content-length:11' + EOL +
+         EOL + 
+         '123' + NULL + '456' + NULL + '789' +
+         NULL;
+  string.value = %addr(data : *data);
+  string.length = %len(data);
+  
+  frame = stomp_frame_parse(string);
+  
+  aEqual('123' + NULL + '456' + NULL + '789' : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+

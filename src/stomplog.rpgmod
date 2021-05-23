@@ -1,0 +1,100 @@
+**FREE
+
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2021 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+
+ctl-opt nomain thread(*concurrent);
+
+
+/include 'stomplog.rpginc'
+/include 'message/message_h.rpgle'
+
+
+dcl-pr stomp_log_init int(10) extproc(*dclcase) end-pr;
+
+dcl-ds stomp_logger_t qualified template;
+  name varchar(100);
+end-ds;
+
+
+dcl-s enabled ind static(*allthread) inz(*off);
+
+
+dcl-proc stomp_log_init export;
+  dcl-pi *n int(10) end-pi;
+
+  dcl-pr getenv pointer extproc('getenv');
+    *n pointer value options(*string : *trim);
+  end-pr;
+  
+  dcl-s value pointer;
+  
+  value = getenv('STOMP_DEBUG');
+  if (value <> *null and %str(value) = *on);
+    enabled = *on;
+    message_info('STOMP debug logging enabled');
+  endif;
+
+  return 0;
+end-proc;
+
+
+dcl-proc stomp_log_create export;
+  dcl-pi *n pointer;
+    name varchar(100) const;
+  end-pi;
+
+  dcl-ds logger likeds(stomp_logger_t) based(ptr);
+
+  ptr = %alloc(%size(stomp_logger_t));
+ 
+  logger.name = name;
+
+  return ptr;
+end-proc;
+
+
+dcl-proc stomp_log_dispose export;
+  dcl-pi *n;
+    logger pointer;
+  end-pi;
+
+  if (logger <> *null);
+    dealloc logger;
+  endif;
+end-proc;
+
+
+dcl-proc stomp_log export;
+  dcl-pi *n;
+    p_logger pointer const;
+    message varchar(1000) const;
+  end-pi;
+
+  dcl-ds logger likeds(stomp_logger_t) based(p_logger);
+  
+  if (enabled);
+    message_info(logger.name + ': ' + message);
+  endif;
+end-proc;

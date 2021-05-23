@@ -1,0 +1,166 @@
+**FREE
+
+///
+// STOMP : Utilities module
+//
+// @author Mihael Schmidt
+// @date   26.07.2017
+// @project STOMP
+///
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2021 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+ctl-opt nomain;
+
+
+/include 'iconv_h.rpgle'
+/include 'message/message_h.rpgle'
+/include 'mimetype.rpginc'
+/include 'stomp_h.rpginc'
+/include 'stompframe.rpginc'
+/include 'stomputil.rpginc'
+/include 'string.rpginc'
+
+
+dcl-proc stomp_util_buffer_dispose export;
+  dcl-pi *n;
+    buffer likeds(stomp_util_buffer_t);
+  end-pi;
+
+  if (buffer.data <> *null);
+    dealloc buffer.data;
+  endif;
+end-proc;
+
+
+dcl-proc stomp_util_convert export;
+  dcl-pi *n likeds(stomp_util_buffer_t);
+    p_data pointer const;
+    p_length uns(10) const;
+    toCcsid int(10) const;
+    fromCcsid int(10) const options(*nopass);
+  end-pi;
+
+  dcl-ds buffer likeds(stomp_util_buffer_t) inz;
+  
+  dcl-ds iconv_table likeds(iconv_t);
+  dcl-s inLength uns(10);
+  dcl-s outLength uns(10);
+  dcl-s inData pointer;
+  dcl-s outData pointer;
+  
+  dcl-ds iconv_from qualified;
+    ccsid int(10) inz(0);
+    convAlt int(10) inz(0);
+    subsAlt int(10) inz(0);
+    shiftAlt int(10) inz(1);
+    inpLenOp int(10) inz(0);
+    errorOpt int(10) inz(1);
+    reserved char(8) inz(*ALLx'00');
+  end-ds;
+  
+  dcl-ds iconv_to qualified;
+    ccsid int(10) inz(1208);
+    convAlt int(10) inz(0);
+    subsAlt int(10) inz(0);
+    shiftAlt int(10) inz(1);
+    inpLenOp int(10) inz(0);
+    errorOpt int(10) inz(1);
+    reserved char(8) inz(*ALLx'00');
+  end-ds;
+
+  inData = p_data;
+  inLength = p_length;
+  outLength = inLength * 2;
+  buffer.data = %alloc(outLength);
+  outData = buffer.data;
+  
+  iconv_to.ccsid = toCcsid;
+  
+  if (%parms() >= 4);
+    iconv_from.ccsid = fromCcsid;
+  endif;
+  
+  iconv_table = iconv_open(iconv_to : iconv_from);
+  if (iconv_table.return_value = -1);
+    message_escape('Could not init iconv data structure.');
+  endif;
+  
+  if (iconv(iconv_table : inData : inLength : outData : outLength) = -1);
+    message_escape('Error converting data.');
+  endif;
+  
+  buffer.length = p_length * 2 - outLength;
+  
+  return buffer;
+  
+  on-exit;
+    iconv_close(iconv_table);
+end-proc;
+
+
+dcl-proc stomp_util_hasBinaryContent export;
+  dcl-pi *n ind;
+    frame pointer const;
+  end-pi;
+
+  dcl-s contentType like(stomp_frame_header_value);
+  
+  if (stomp_frame_containsHeader(frame : 'content-type'));
+    contentType = stomp_frame_getHeader(frame : 'content-type');
+    contentType = string_toLowerCase(contentType);
+    if (contentType = STOMP_MIME_BINARY);
+      return *on;
+    elseif (contentType = 'application/x-binary');
+      return *on;
+    elseif (%len(contentType) >= 6 and %subst(contentType : 1 : 6) = 'image/');
+      return *on;
+    elseif (%len(contentType) >= 6 and %subst(contentType : 1 : 6) = 'video/');
+      return *on;
+    elseif (%len(contentType) >= 6 and %subst(contentType : 1 : 6) = 'audio/');
+      return *on;
+    else;
+      return *off;
+    endif;
+  endif;
+
+  return *on;
+end-proc;
+
+
+dcl-proc stomp_util_getExplicitCharset export;
+  dcl-pi *n varchar(100);
+    frame pointer const;
+  end-pi;
+
+  dcl-s contentType like(stomp_frame_header_value);
+  dcl-ds mimeType likeds(stomp_mime_t);
+  
+  if (stomp_frame_containsHeader(frame : 'content-type'));
+    contentType = stomp_frame_getHeader(frame : 'content-type');
+    mimeType = stomp_mime_parse(contentType);
+    return mimeType.charset;
+  endif;
+  
+  return *blank;
+end-proc;

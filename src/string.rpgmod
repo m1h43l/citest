@@ -1,0 +1,77 @@
+**FREE
+
+ctl-opt nomain thread(*concurrent);
+
+
+/include 'string.rpginc'
+/include 'qusec_h.rpgle'
+
+dcl-c OS_API_TYPE_CCSID 1;
+dcl-c OS_API_CCSID_JOB 0;
+dcl-c OS_API_UPPERCASE 0;
+dcl-c OS_API_LOWERCASE 1;
+
+dcl-ds requestControlBlock qualified template;
+  type int(10);
+  ccsid int(10);
+  case int(10);
+  reserved char(10);
+end-ds;
+
+dcl-pr sys_convertCase extproc('QlgConvertCase');
+  controlBlock likeds(requestControlBlock) const;
+  input char(65535) const options(*varsize);
+  output char(65535) const options(*varsize);
+  dataLength int(10) const;
+  errorCode likeds(qusec);
+end-pr;
+    
+
+dcl-proc string_toUpperCase export;
+  dcl-pi *n varchar(65000);
+    p_string varchar(65000) const;
+  end-pi;
+ 
+  dcl-s string char(65000);
+  dcl-s length int(10);
+  dcl-ds errorCode likeds(qusec) inz;
+  dcl-ds controlBlock likeds(requestControlBlock) inz;
+  
+  if (p_string = *blank);
+    return '';
+  endif;
+  
+  controlBlock.type = OS_API_TYPE_CCSID;
+  controlBlock.ccsid = OS_API_CCSID_JOB;
+  controlBlock.case = OS_API_UPPERCASE;
+  controlBlock.reserved = *allx'00';
+  
+  sys_convertCase(controlBlock : p_string : string : %len(p_string) : errorCode);
+  
+  return %subst(string : 1 : %len(p_string));
+end-proc;
+
+
+dcl-proc string_toLowerCase export;
+  dcl-pi *n varchar(65000);
+    p_string varchar(65000) const;
+  end-pi;
+ 
+  dcl-s string char(65000);
+  dcl-s length int(10);
+  dcl-ds errorCode likeds(qusec) inz;
+  dcl-ds controlBlock likeds(requestControlBlock) inz;
+  
+  if (p_string = *blank);
+    return '';
+  endif;
+  
+  controlBlock.type = OS_API_TYPE_CCSID;
+  controlBlock.ccsid = OS_API_CCSID_JOB;
+  controlBlock.case = OS_API_LOWERCASE;
+  controlBlock.reserved = *allx'00';
+  
+  sys_convertCase(controlBlock : p_string : string : %len(p_string) : errorCode);
+  
+  return %subst(string : 1 : %len(p_string));
+end-proc;

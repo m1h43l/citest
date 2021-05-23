@@ -1,0 +1,419 @@
+**FREE
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2021 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+ctl-opt nomain;
+
+
+/include 'ilecee.rpginc'
+/include 'libc_h.rpgle'
+/include 'qusec.rpginc'
+/include 'stomp_h.rpginc'
+/include 'stompcmd.rpginc'
+/include 'stompext.rpginc'
+/include 'stompframe.rpginc'
+/include 'stomplog.rpginc'
+/include 'stomputil.rpginc'
+/include 'message/message_h.rpgle'
+
+dcl-pr stomp_command_init int(10) extproc(*dclcase) end-pr;
+
+
+dcl-s logger pointer;
+
+
+dcl-proc stomp_command_init export;
+  dcl-pi *n int(10) end-pi;
+
+  dcl-ds errorCode likeds(qusec_t) inz;
+
+  logger = stomp_log_create('stomp.command');
+
+  cee4rage2(%paddr(stomp_command_exitHandler) : errorCode);
+
+  return 0;
+end-proc;
+
+
+dcl-proc stomp_command_exitHandler;
+  dcl-pi *n;
+    activationGroupMark uns(20);
+    reason uns(10);
+    resultCode uns(10);
+    userResultCode uns(10);
+  end-pi;
+
+  stomp_log_dispose(logger);
+end-proc;
+
+
+dcl-proc stomp_command_connect export;
+  dcl-pi *N;
+    conn pointer const;
+    user varchar(100) const options(*nopass);
+    pass varchar(100) const options(*nopass);
+  end-pi;
+  
+  dcl-s frame pointer;
+  dcl-s returnFrame pointer;
+  dcl-s alreadyConnected char(20);
+  dcl-s alreadyConnPtr pointer;
+  dcl-s rc int(10);
+  dcl-s optionPtr pointer;
+  dcl-s abnormallyEnded ind;
+
+  frame = stomp_frame_create('CONNECT');
+  if (%parms() >= 2);
+    stomp_frame_setHeader(frame : 'login' : user);
+  endif;
+  if (%parms() = 3);
+    stomp_frame_setHeader(frame : 'passcode' : pass);
+  endif;
+  
+  stomp_frame_setHeader(frame : 'accept-version' : '1.2');
+  
+  if (stomp_hasOption(conn : STOMP_OPTION_CLIENT_ID));
+    optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_CLIENT_ID);
+    stomp_frame_setHeader(frame : 'client-id' :  %str(optionPtr : 1000));
+  endif;
+  
+  if (stomp_hasOption(conn : STOMP_OPTION_VIRTUAL_HOST));
+    optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_VIRTUAL_HOST);
+    stomp_frame_setHeader(frame : 'host' : %str(optionPtr : 1000));
+  endif;
+  
+  stomp_frame_setHeader(frame : 'heart-beat' : '0,' +%char(stomp_getHeartbeatServer(conn)));
+  
+  if (stomp_getExtension(conn) <> *null);
+    stomp_ext_connect(stomp_getExtension(conn) : conn : frame : user:pass);
+  endif;
+  
+  stomp_sendFrame(conn : frame);
+  stomp_frame_finalize(frame);
+  
+  returnFrame = stomp_receiveFrame(conn);
+  if (returnFrame = *null);
+    message_escape('No returning frame on connect.');
+  else;
+  
+    if (stomp_frame_getCommand(returnFrame) = 'CONNECTED');
+    
+      if (stomp_frame_containsHeader(returnFrame : 'version'));
+        if (stomp_frame_getHeader(returnFrame : 'version') <> '1.2');
+          message_escape('Unsupported STOMP version');
+        endif;
+      else;
+        // we just assume that it supports 1.2
+      endif;
+    
+      if (stomp_frame_containsHeader(returnFrame : 'session'));
+        stomp_setSessionId(conn : stomp_frame_getHeader(returnFrame : 'session'));
+      endif;
+  
+    elseif (stomp_frame_getCommand(returnFrame) = 'ERROR');
+      message_escape('Error on connecting to messaging system. ' + stomp_frame_toString(returnFrame));
+  
+    else;
+      message_escape('Received ' + stomp_frame_getCommand(returnFrame) + ' on connecting');
+    endif;
+  endif;
+  
+  stomp_log(logger : 'connected to messaging system');
+  
+  on-exit abnormallyEnded;
+    stomp_frame_finalize(returnFrame);
+end-proc;
+
+
+dcl-proc stomp_command_disconnect export;
+  dcl-pi *N;
+    conn pointer const;
+  end-pi;
+  
+  dcl-s frame pointer;
+
+  // create frame/message
+  frame = stomp_frame_create('DISCONNECT');
+
+  if (stomp_getExtension(conn) <> *null);
+    stomp_ext_disconnect(stomp_getExtension(conn) : conn : frame);
+  endif;
+
+  stomp_sendFrame(conn : frame);
+  stomp_frame_finalize(frame);
+
+  stomp_setSessionId(conn : *blank);
+
+  stomp_log(logger : 'disconnected');
+end-proc;
+
+
+dcl-proc stomp_command_send export;
+  dcl-pi *N;
+    conn pointer const;
+    queue varchar(100) const;
+    message pointer const options(*string);
+    messageLength uns(10) const options(*omit : *nopass);
+    contentType varchar(100) const options(*nopass);
+  end-pi;
+  
+  dcl-s frame pointer;
+  dcl-s optionPtr pointer;
+  dcl-s transactionId varchar(100);
+
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setHeader(frame : 'destination' : queue);
+  
+  if (%parms() = 3 or (%parms() >= 4 and %addr(messageLength) = *null));
+    stomp_frame_setBody(frame : message);
+    stomp_frame_setHeader(frame : 'content-length' : %char(strlen(message)));
+  elseif (%parms() = 5);
+    stomp_frame_setBody(frame : message : messageLength);
+    stomp_frame_setHeader(frame : 'content-length' : %char(messageLength));
+  endif;
+ 
+  if (stomp_hasOption(conn : STOMP_OPTION_PERSISTENT));
+    optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_PERSISTENT);
+    stomp_frame_setHeader(frame : 'persistent' :  %str(optionPtr : 1000));
+  endif;
+ 
+  if (not stomp_frame_containsHeader(frame : 'content-type'));
+    if (%parms() = 5);
+      stomp_frame_setHeader(frame : 'content-type' : contentType);
+    elseif (stomp_hasOption(conn : STOMP_OPTION_CONTENT_TYPE));
+      optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_CONTENT_TYPE);
+      stomp_frame_setHeader(frame : 'content-type' : %str(optionPtr : 1000));
+    endif;
+  endif;
+ 
+  transactionId = stomp_getTransactionId(conn);
+  if (transactionId <> *blank);
+    stomp_frame_setHeader(frame : 'transaction' : transactionId);
+  endif;
+ 
+  if (stomp_getExtension(conn) <> *null);
+    if (%parms() = 3);
+      stomp_ext_send(stomp_getExtension(conn) : conn : frame : queue : message);
+    elseif (%parms() = 4);
+      stomp_ext_send(stomp_getExtension(conn) : conn : frame : queue : message : messageLength);
+    elseif (%parms() = 5);
+      stomp_ext_send(stomp_getExtension(conn) : conn : frame : queue : message : messageLength : contentType);
+    endif;
+  endif;
+ 
+  stomp_sendFrame(conn : frame);
+ 
+  stomp_frame_finalize(frame);
+ 
+  stomp_log(logger : 'sent frame SEND');
+end-proc;
+
+
+dcl-proc stomp_command_subscribe export;
+  dcl-pi *N;
+    conn pointer const;
+    queue varchar(100) const;
+  end-pi;
+  
+  dcl-s frame pointer;
+  dcl-s optionPtr pointer;
+
+  frame = stomp_frame_create('SUBSCRIBE');
+  stomp_frame_setHeader(frame : 'destination' : queue);
+
+  if (stomp_hasOption(conn : STOMP_OPTION_DURABLE_SUBSCRIBER));
+    optionPtr = stomp_getOptionValue(conn:STOMP_OPTION_DURABLE_SUBSCRIBER);
+    stomp_frame_setHeader(frame : 'durable-subscriber-name' : %str(optionPtr));
+  endif;
+ 
+  if (stomp_hasOption(conn : STOMP_OPTION_ACK));
+    optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_ACK);
+    stomp_frame_setHeader(frame : 'ack' : %str(optionPtr));
+  endif;
+ 
+  if (stomp_getExtension(conn) <> *null);
+    stomp_ext_subscribe(stomp_getExtension(conn) : conn : frame : queue);
+  endif;
+ 
+  stomp_sendFrame(conn : frame);
+ 
+  stomp_frame_finalize(frame);
+ 
+  stomp_log(logger : 'subscribed to ' + queue);
+end-proc;
+
+
+dcl-proc stomp_command_unsubscribe export;
+  dcl-pi *N;
+    conn pointer const;
+    queue varchar(100) const;
+  end-pi;
+  
+  dcl-s frame pointer;
+
+  frame = stomp_frame_create('UNSUBSCRIBE');
+  stomp_frame_setHeader(frame : 'destination' : queue);
+  
+  if (stomp_getExtension(conn) <> *null);
+    stomp_ext_unsubscribe(stomp_getExtension(conn) : conn : frame : queue);
+  endif;
+  
+  stomp_sendFrame(conn : frame);
+  
+  stomp_frame_finalize(frame);
+  
+  stomp_log(logger : 'unsubscribed from ' + queue);
+end-proc;
+
+
+dcl-proc stomp_command_begin export;
+  dcl-pi *n;
+    client pointer const;
+    transactionId varchar(100) const;
+  end-pi;
+
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('BEGIN');
+  stomp_frame_setHeader(frame : 'transaction' : transactionId);
+  
+  if (stomp_getExtension(client) <> *null);
+    stomp_ext_begin(stomp_getExtension(client) : client : frame : transactionId);
+  endif;
+  
+  stomp_sendFrame(client : frame);
+  
+  stomp_frame_finalize(frame);
+  
+  stomp_setTransactionId(client : transactionId);
+  
+  stomp_log(logger : 'begin tx ' + transactionId);
+end-proc;
+
+
+dcl-proc stomp_command_commit export;
+  dcl-pi *n;
+    client pointer const;
+  end-pi;
+
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('COMMIT');
+  stomp_frame_setHeader(frame : 'transaction' : stomp_getTransactionId(client));
+  
+  if (stomp_getExtension(client) <> *null);
+    stomp_ext_commit(stomp_getExtension(client) : client : frame);
+  endif;
+  
+  stomp_sendFrame(client : frame);
+  
+  stomp_frame_finalize(frame);
+  
+  stomp_setTransactionId(client : *blank);
+  
+  stomp_log(logger : 'commit tx ' + stomp_getTransactionId(client));
+end-proc;
+
+
+dcl-proc stomp_command_abort export;
+  dcl-pi *n;
+    client pointer const;
+  end-pi;
+
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('ABORT');
+  stomp_frame_setHeader(frame : 'transaction' : stomp_getTransactionId(client));
+  
+  if (stomp_getExtension(client) <> *null);
+    stomp_ext_abort(stomp_getExtension(client) : client : frame);
+  endif;
+  
+  stomp_sendFrame(client : frame);
+  
+  stomp_frame_finalize(frame);
+  
+  stomp_setTransactionId(client : *blank);
+  
+  stomp_log(logger : 'abort tx ' + stomp_getTransactionId(client));
+end-proc;
+
+
+dcl-proc stomp_command_ack export;
+  dcl-pi *n;
+    client pointer const;
+    frame pointer const;
+  end-pi;
+
+  dcl-s ackFrame pointer;
+  dcl-s frameId like(stomp_frame_header_value);
+  
+  ackFrame = stomp_frame_create('ACK');
+  if (stomp_frame_containsHeader(frame : 'ack'));
+    frameId = stomp_frame_getHeader(frame : 'ack');
+    stomp_frame_setHeader(ackFrame : 'id' : frameId);
+  endif;
+  if (stomp_getTransactionId(client) <> *blank);
+    stomp_frame_setHeader(ackFrame : 'transaction' : stomp_getTransactionId(client));
+  endif;
+  
+  if (stomp_getExtension(client) <> *null);
+    stomp_ext_ack(stomp_getExtension(client) : client : frame : ackFrame);
+  endif;
+  
+  stomp_sendFrame(client : ackFrame);
+  
+  stomp_frame_finalize(ackFrame);
+  
+  stomp_log(logger : 'ack frame ' + frameId);
+end-proc;
+
+
+dcl-proc stomp_command_nack export;
+  dcl-pi *n;
+    client pointer const;
+    frame pointer const;
+  end-pi;
+
+  dcl-s nackFrame pointer;
+  dcl-s frameId like(stomp_frame_header_value);
+  
+  nackFrame = stomp_frame_create('NACK');
+  if (stomp_frame_containsHeader(frame : 'ack'));
+    frameId = stomp_frame_getHeader(frame : 'ack');
+    stomp_frame_setHeader(nackFrame : 'id' : frameId);
+  endif;
+  if (stomp_getTransactionId(client) <> *blank);
+    stomp_frame_setHeader(nackFrame : 'transaction' : stomp_getTransactionId(client));
+  endif;
+  
+  if (stomp_getExtension(client) <> *null);
+    stomp_ext_nack(stomp_getExtension(client) : client : frame : nackFrame);
+  endif;
+  
+  stomp_sendFrame(client : nackFrame);
+  
+  stomp_frame_finalize(nackFrame);
+  
+  stomp_log(logger : 'nack frame ' + frameId);
+end-proc;

@@ -1,0 +1,68 @@
+**FREE
+
+
+ctl-opt nomain;
+
+
+/include 'assert.rpginc'
+/include 'mimetype.rpginc'
+
+
+dcl-s validMimeTypes char(50) dim(9) ctdata;
+dcl-s invalidMimeTypes char(50) dim(6) ctdata;
+
+dcl-proc test_valid export;
+  dcl-s i int(10);
+  dcl-ds mime likeds(stomp_mime_t);
+  dcl-s msg char(50);
+    
+  for i = 1 to %elem(validMimeTypes);
+    mime = stomp_mime_parse(validMimeTypes(i));
+    msg = stomp_mime_toString(mime);
+    dsply msg;
+    assert(mime.type <> *blank : 'MIME Type ' + %char(i) + ' should be valid');
+  endfor;
+end-proc;
+
+
+dcl-proc test_invalid export;
+  dcl-s i int(10);
+  dcl-ds mime likeds(stomp_mime_t);
+    
+  for i = 1 to %elem(invalidMimeTypes);
+    mime = stomp_mime_parse(invalidMimeTypes(i));
+    assert(mime.type = *blank : 'MIME Type ' + %char(i) + ' incorrect parsed as a valid MIME type');
+  endfor;
+end-proc;
+
+
+dcl-proc test_uppercaseCharset export;
+  iEqual(1208 : stomp_mime_charsetToCcsid('UTF-8'));
+end-proc;
+
+dcl-proc test_mixedcaseCharset export;
+  iEqual(1208 : stomp_mime_charsetToCcsid('Utf-8'));
+end-proc;
+
+dcl-proc test_invalidCharset;
+  iEqual(0 : stomp_mime_charsetToCcsid('utf8nobom'));
+end-proc;
+
+
+**CTDATA validMimeTypes
+text/plain
+image/png
+application/json;charset=utf-8
+application/json;charset=UTF8
+APPLICATION/XML;CHARSET=UTF-16
+application/json;q=8
+application/json; charset=utf-8
+application/json; charset="utf-8"
+application/json; charset=utf-8 (JSON)
+**CTDATA invalidMimeTypes
+/
+/json
+text
+text@plain
+text/invalid@sign
+text/plain;charset

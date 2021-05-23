@@ -1,0 +1,284 @@
+**FREE
+
+/if defined(STOMP_FRAME_H)
+/eof
+/endif
+
+/define STOMP_FRAME_H
+
+///
+// STOMP : Frame Module
+//
+// This module provides procedures for creating and querying a stomp frame.
+// <br><br>
+// Log entries will be written via the logger <em>rpgnextgen.stomp.frame</em>.
+// There is no appender configured for this logger. Feel free to add log appenders
+// for this logger.
+//
+// @author Mihael Schmidt
+// @date   26.07.2017
+// @project STOMP
+///
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2017 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+
+//
+// Templates
+//
+dcl-s stomp_frame_header_key varchar(100) template;
+dcl-s stomp_frame_header_value varchar(1000) template;
+dcl-s stomp_frame_command varchar(20) template;
+dcl-c STOMP_FRAME_HEADER_VALUE_LENGTH 1000;
+dcl-c STOMP_FRAME_BODY_LENGTH 65535;
+
+dcl-ds stomp_frame_header_t qualified template;
+  key like(stomp_frame_header_key);
+  value like(stomp_frame_header_value);
+end-ds;
+
+
+/include 'stomputil.rpginc'
+
+
+//
+// Prototypes
+//
+
+///
+// Create stomp frame
+//
+// Creates a stomp frame and if the parameters are passed also initializes it.
+//
+// @param Stomp command (optional)
+// @param Frame body text (optional)
+//
+// @info The resources allocated with this frame must be released by the caller
+//       with the <em>stomp_frame_finalize</em> procedure.
+///
+dcl-pr stomp_frame_create pointer extproc(*dclcase);
+  command like(stomp_frame_command) const options(*nopass);
+  body varchar(65335) const options(*nopass);
+end-pr;
+
+///
+// Finalize stomp frame
+//
+// Releases all resources allocated to the frame.
+//
+// @param Frame
+///
+dcl-pr stomp_frame_finalize extproc(*dclcase);
+  frame pointer;
+end-pr;
+
+///
+// Set stomp frame header value
+//
+// Sets a header (key and value) on the passed stomp frame.
+// 
+// @info If this header already exists its value will be appended to the list of
+//       headers. STOMP Spec 1.2 supports multiple headers with the same key.
+//
+// @param Frame
+// @param Key
+// @param Value
+///
+dcl-pr stomp_frame_setHeader extproc(*dclcase);
+  frame pointer const;
+  key like(stomp_frame_header_key) const;
+  value like(stomp_frame_header_value) const;
+end-pr;
+
+///
+// Get stomp frame header value
+//
+// Returns the value from the passed header of the stomp frame.
+//
+// @param Frame
+// @param Stomp frame header (key)
+//
+// @return Value
+//
+// @throws CPF9898 Header not found in stomp frame
+///
+dcl-pr stomp_frame_getHeader like(stomp_frame_header_value) extproc(*dclcase);
+  frame pointer const;
+  key like(stomp_frame_header_key) const;
+end-pr;
+
+///
+// List stomp frame headers
+//
+// Returns a list of stomp frame headers. Each entry of the list is a data
+// structure (stomp_frame_header_t).
+//
+// @param Frame
+// @return List with headers
+//
+// @info The caller of this procedure must make sure to free the
+//       allocated resources of the returned list with <em>list_dispose(list)</em>.
+///
+dcl-pr stomp_frame_listHeaders pointer extproc(*dclcase);
+  frame pointer const;
+end-pr;
+
+///
+// Remove stomp frame header
+//
+// Removes any occurence of the header from the passed stomp frame.
+// <br>
+// If the header does not exist this procedure does nothing.
+//
+// @param Frame
+// @param Stomp frame header (key)
+///
+dcl-pr stomp_frame_removeHeader extproc(*dclcase);
+  frame pointer const;
+  key like(stomp_frame_header_key) const;
+end-pr;
+
+///
+// Set command
+//
+// Sets the command in the stomp frame.
+//
+// @param Frame
+// @param Command
+//
+// @throws CPF9898 Invalid stomp command
+///
+dcl-pr stomp_frame_setCommand extproc(*dclcase);
+  frame pointer const;
+  command like(stomp_frame_command) const;
+end-pr;
+
+///
+// Get command
+//
+// Returns the command of this stomp frame.
+//
+// @param Frame
+//
+// @return Command (is *blank if not set yet)
+///
+dcl-pr stomp_frame_getCommand like(stomp_frame_command) extproc(*dclcase);
+  frame pointer const;
+end-pr;
+
+///
+// Set body/content
+//
+// Sets the body/content of this frame.
+// 
+// @param Frame
+// @param Content
+// @param Content length
+//
+// @info If this frame already contains a content the old content will be
+//       replaced by the new one.
+//
+// @info If no content length has been passed then it will be assumed that the
+//       content is null-terminated.
+///
+dcl-pr stomp_frame_setBody extproc(*dclcase);
+  frame pointer const;
+  body pointer const options(*string);
+  length uns(10) const options(*nopass);
+end-pr;
+
+///
+// Return message body
+//
+// Returns a pointer to the body text of this frame.
+// The string is null-terminated.
+//
+// @param Frame
+//
+// @return Buffer containing message body
+//
+// @warning Don't call <em>stomp_util_buffer_dispose</em> on this buffer.
+//          The resources from this buffer will automatically be freed when
+//          disposing the frame.
+///
+dcl-pr stomp_frame_getBody likeds(stomp_util_buffer_t) extproc(*dclcase);
+  frame pointer const;
+end-pr;
+
+
+///
+// Serialize frame
+//
+// Returns the frame in a serialized format which adheres to the STOMP Spec 1.2.
+//
+// @param Frame
+// @return Serialized content (stomp_util_buffer_t)
+//
+// @info The resources of the returned value must be freed by the caller by
+//       calling <em>stomp_util_buffer_dispose</em>.
+// 
+// @throws CPF9898 Stomp frame is not valid
+///
+dcl-pr stomp_frame_serialize likeds(stomp_util_buffer_t) extproc(*dclcase);
+  frame pointer const;
+end-pr;
+
+
+///
+// Check if frame contains header
+//
+// Checks if the frame contains the header.
+//
+// @param Frame
+// @param Header (key)
+//
+// @return *on = frame contains header otherwise *off
+///
+dcl-pr stomp_frame_containsHeader ind extproc(*dclcase);
+  frame pointer const;
+  key like(stomp_frame_header_key) const;
+end-pr;
+
+/// 
+// Dump frame to job log
+//
+// Writes the frame in a serialized format (see stomp_frame_toString) to the 
+// job log.
+// 
+// @param Frame
+///
+dcl-pr stomp_frame_dump extproc(*dclcase);
+  frame pointer const;
+end-pr;
+
+///
+// Get frame body as string
+//
+// Returns the body of the frame as a string in the job ccsid.
+//
+// @param Frame
+// @return Frame body
+///
+dcl-pr stomp_frame_toString varchar(1000000) rtnparm extproc(*dclcase);
+  frame pointer const;
+end-pr;

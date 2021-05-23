@@ -5,7 +5,7 @@
 
 //                          The MIT License (MIT)
 // 
-// Copyright (c) 2017 Mihael Schmidt
+// Copyright (c) 2021 Mihael Schmidt
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy 
 // of this software and associated documentation files (the "Software"), to deal 
@@ -25,25 +25,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
-dcl-pr translateToAscii;
-  string pointer;
+dcl-ds stomp_util_buffer_t qualified template;
+  data pointer;
+  length uns(10);
+end-ds;
+
+dcl-pr stomp_util_buffer_dispose extproc(*dclcase);
+  buffer likeds(stomp_util_buffer_t);
+end-pr;
+  
+dcl-pr stomp_util_convert likeds(stomp_util_buffer_t) extproc(*dclcase);
+  data pointer const;
   length uns(10) const;
+  toCcsid int(10) const;
+  fromCcsid int(10) const options(*nopass);
 end-pr;
 
-dcl-pr translateFromAscii;
-  string pointer;
-  length uns(10) const;
+dcl-pr stomp_util_hasBinaryContent ind extproc(*dclcase);
+  frame pointer const;
 end-pr;
-
-dcl-pr translateToUtf8;
-  string pointer;
-  length uns(10) const;
+  
+dcl-pr stomp_util_getExplicitCharset varchar(100) extproc(*dclcase);
+  frame pointer const;
 end-pr;
-
-dcl-pr translateFromUtf8;
-  string pointer;
-  length uns(10) const;
-end-pr;
-
+  
 /endif
-

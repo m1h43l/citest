@@ -1,0 +1,219 @@
+**FREE
+
+///
+// STOMP : Frame Parser
+//
+// This module parses serialized stomp frames and returns frame "objects".
+//
+// @author Mihael Schmidt
+// @date   26.07.2017
+// @project STOMP
+//
+///
+
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2021 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+// TODO check for CR / LF / CRLF
+
+
+ctl-opt nomain;
+
+
+dcl-pr stomp_parser_init int(10) extproc(*dclcase) end-pr;
+
+dcl-pr getNextLineLength int(10) extproc(*dclcase);
+  ptr pointer const;
+end-pr;
+
+dcl-pr addHeader extproc(*dclcase);
+  frame pointer const;
+  data varchar(1000) ccsid(*utf8) const;
+end-pr;
+
+/include 'ilecee.rpginc'
+/include 'libc_h.rpgle'
+/include 'mimetype.rpginc'
+/include 'qusec.rpginc'
+/include 'stomp_h.rpginc'
+/include 'stomplog.rpginc'
+/include 'stompframe.rpginc'
+/include 'stompparser.rpginc'
+/include 'unicode.rpginc'
+
+
+// in UTF-8 and UCS-2
+dcl-c CR u'000D';
+dcl-c LF u'000A';
+dcl-c CRLF u'000A000D';
+
+
+dcl-s logger pointer;
+
+
+dcl-proc stomp_parser_init export;
+  dcl-pi *n int(10) end-pi;
+
+  dcl-ds errorCode likeds(qusec_t) inz;
+
+  logger = stomp_log_create('stomp.parser');
+
+  cee4rage2(%paddr(stomp_parser_exitHandler) : errorCode);
+
+  return 0;
+end-proc;
+
+
+dcl-proc stomp_parser_exitHandler;
+  dcl-pi *n;
+    activationGroupMark uns(20);
+    reason uns(10);
+    resultCode uns(10);
+    userResultCode uns(10);
+  end-pi;
+
+  stomp_log_dispose(logger);
+end-proc;
+
+
+dcl-proc stomp_parser_parse export;
+  dcl-pi *N pointer;
+    p_data pointer const;
+    p_length uns(10) const;
+  end-pi;
+  
+  dcl-s frame pointer;
+  dcl-s length int(10);
+  dcl-s data char(1000) ccsid(*utf8) based(dataPtr);
+  dcl-s command like(stomp_frame_command);
+  dcl-s charset varchar(100);
+  dcl-s ccsid int(10);
+  dcl-ds convBuffer likeds(stomp_util_buffer_t) inz;
+  dcl-s utf8data varchar(STOMP_MAX_FRAME_SIZE) ccsid(*utf8) based(dataPtr);
+  dcl-s ebcdicData varchar(STOMP_MAX_FRAME_SIZE);
+  
+  dataPtr = p_data;
+  
+  // get command
+  length = getNextLineLength(dataPtr);
+  if (length > 0);
+    frame = stomp_frame_create();
+    
+    command = %char(%subst(data : 1 : length));
+    stomp_frame_setCommand(frame : command);
+    
+    stomp_log(logger : 'frame command: ' + %subst(data : 1 : length));
+  else;
+    stomp_log(logger : 'invalid frame: no command => dropping frame');
+    return *null;
+  endif;
+  
+  // get headers
+  dataPtr += length + 1; // TODO 1 = line separator , might be 1 or 2 characters
+  length = getNextLineLength(dataPtr);
+  dow (length > 0);
+    addHeader(frame : %subst(data : 1 : length));
+    dataPtr += length + 1; // TODO 1 = line separator , might be 1 or 2 characters
+    length = getNextLineLength(dataPtr);
+  enddo;
+  
+  // empty line separates headers and message body
+  
+  // get body
+  dataPtr += 1; // TODO 1 = line separator , might be 1 or 2 characters
+  
+  if (stomp_frame_containsHeader(frame : 'content-length'));
+    length = %int(stomp_frame_getHeader(frame : 'content-length'));
+  else;
+    length = strlen(dataPtr);
+  endif;
+  
+  if (length > 0);
+    stomp_log(logger: 'body length: ' + %char(length));
+    
+    charset = stomp_util_getExplicitCharset(frame);
+    
+    if (stomp_util_hasBinaryContent(frame));
+      // no conversion
+      stomp_frame_setBody(frame : dataPtr : length);
+    else;
+      // convert from charset to ebcdic
+      ccsid = stomp_mime_charsetToCcsid(charset);
+      if (ccsid = 0);
+        ccsid = 1208; // fallback to utf-8
+      endif;
+      
+      convBuffer = stomp_util_convert(dataPtr : length : 0 : ccsid);
+      stomp_frame_setBody(frame : convBuffer.data : convBuffer.length);
+      stomp_util_buffer_dispose(convBuffer);
+    endif;
+    
+  else;
+    stomp_log(logger : 'frame got no body');
+  endif;
+  
+  return frame;
+end-proc;
+
+
+dcl-proc getNextLineLength;
+  dcl-pi *N int(10);
+    ptr pointer const;
+  end-pi;
+  
+  dcl-s index int(10);
+  dcl-s l_LF char(1) ccsid(*utf8);
+ 
+  l_LF = LF;
+  
+  index = strcspn(ptr : %addr(l_LF));
+ 
+  // TODO check if the next char is CR / LF / CRLF
+ 
+  return index;
+end-proc;
+ 
+ 
+dcl-proc addHeader;
+  dcl-pi *N;
+    frame pointer const;
+    data varchar(1000) ccsid(*utf8) const;
+  end-pi;
+  
+  dcl-s index int(10);
+  dcl-s colon char(1) ccsid(*utf8);
+  dcl-s key varchar(100);
+  dcl-s value varchar(1000);
+
+  colon = UNICODE_COLON;
+
+  index = %scan(colon : data);
+  if (index > 0); // index is 1-based
+    key = %subst(data : 1 : index - 1);
+    value = %subst(data : index + 1);
+    stomp_frame_setHeader(frame : key : value); 
+    stomp_log(logger : 'added header:' + %trim(key) + ' - ' + %trimr(value));
+  else;
+    stomp_log(logger : 'dropping invalid header: ' + data);
+  endif;
+end-proc;

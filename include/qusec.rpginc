@@ -1,0 +1,13 @@
+**FREE
+
+/if not defined (QUSEC_T)
+/define QUSEC_T
+
+dcl-ds qusec_t qualified template;
+  bytesProvided int(10);
+  bytesAvailable int(10);
+  exceptionId char(7);
+  reserved char(1);
+end-ds;
+
+/endif

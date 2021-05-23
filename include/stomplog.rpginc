@@ -1,0 +1,20 @@
+**FREE
+
+/if defined (STOMP_LOG)
+/eof
+/endif
+
+/define STOMP_LOG
+
+dcl-pr stomp_log_create pointer extproc(*dclcase);
+  name varchar(100) const;
+end-pr;
+
+dcl-pr stomp_log_dispose extproc(*dclcase);
+  logger pointer;
+end-pr;
+
+dcl-pr stomp_log extproc(*dclcase);
+  logger pointer const;
+  message varchar(1000) const;
+end-pr;

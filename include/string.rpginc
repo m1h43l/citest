@@ -1,0 +1,41 @@
+**FREE
+
+/if defined (RNG_STRING)
+/eof
+/endif
+
+/define RNG_STRING
+
+///
+// String Utilities
+//
+// This project contains various helper procedures and is all about handling strings.
+//
+// @author Mihael Schmidt
+// @date 2021-01-07
+// @project String Util
+///
+
+///
+// To upper case
+//
+// Returns the passed string as upper case.
+//
+// @param String
+// @return String in upper case
+///
+dcl-pr string_toUpperCase varchar(65000) extproc(*dclcase);
+  string varchar(65000) const;
+end-pr;
+
+///
+// To lower case
+//
+// Returns the passed string as lower case.
+//
+// @param String
+// @return String in lower case
+///
+dcl-pr string_toLowerCase varchar(65000) extproc(*dclcase);
+  string varchar(65000) const;
+end-pr;

@@ -1,0 +1,12 @@
+**FREE
+
+/if defined (ILE_CEE_API)
+/eof
+/endif
+
+/define ILE_CEE_API
+
+dcl-pr cee4rage2 extproc('CEE4RAGE2');
+  exitHandler pointer(*proc) const;
+  feedback char(12);
+end-pr;

@@ -6,16 +6,14 @@
 ///
 // STOMP : Extension Proxy
 //
-// TBD
-//
-// \author Mihael Schmidt
-// \date   26.07.2017
-// \project STOMP
+// @author Mihael Schmidt
+// @date   26.07.2017
+// @project STOMP
 ///
 
 //                          The MIT License (MIT)
 // 
-// Copyright (c) 2017 Mihael Schmidt
+// Copyright (c) 2021 Mihael Schmidt
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy 
 // of this software and associated documentation files (the "Software"), to deal 
@@ -35,15 +33,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
+
+///
+// Interface Template
+///
+dcl-ds stomp_ext_t qualified template align;
+  id char(50);
+  userdata pointer;
+  proc_connect pointer(*proc);
+  proc_disconnect pointer(*proc);
+  proc_send pointer(*proc);
+  proc_begin pointer(*proc);
+  proc_commit pointer(*proc);
+  proc_abort pointer(*proc);
+  proc_subscribe pointer(*proc);
+  proc_unsubscribe pointer(*proc);
+  proc_ack pointer(*proc);
+  proc_nack pointer(*proc);
+  proc_finalize pointer(*proc);
+end-ds;
+
+
 //
 // Prototypes
 //
-dcl-pr stomp_ext_create pointer extproc('stomp_ext_create');
-  extension char(10) const;
-  userdata pointer const options(*nopass : *string);
-  procedureName char(256) const options(*nopass);
-end-pr;
-
 dcl-pr stomp_ext_getId varchar(50) extproc('stomp_ext_getId');
   extension pointer const;
 end-pr;
@@ -62,6 +75,8 @@ dcl-pr stomp_ext_send extproc('stomp_ext_send');
   frame pointer const;
   destination varchar(100) const;
   messageData pointer const options(*string);
+  messageLength uns(10) const options(*omit : *nopass);
+  contentType varchar(100) const options(*nopass);
 end-pr;
 
 dcl-pr stomp_ext_disconnect extproc('stomp_ext_disconnect');
@@ -82,6 +97,39 @@ dcl-pr stomp_ext_unsubscribe extproc('stomp_ext_unsubscribe');
   client pointer const;
   frame pointer const;
   destination varchar(100) const;
+end-pr;
+
+dcl-pr stomp_ext_begin extproc(*dclcase);
+  extension pointer const;
+  client pointer const;
+  frame pointer const;
+  transactionId varchar(100) const;
+end-pr;
+
+dcl-pr stomp_ext_commit extproc(*dclcase);
+  extension pointer const;
+  client pointer const;
+  frame pointer const;
+end-pr;
+
+dcl-pr stomp_ext_abort extproc(*dclcase);
+  extension pointer const;
+  client pointer const;
+  frame pointer const;
+end-pr;
+
+dcl-pr stomp_ext_ack extproc(*dclcase);
+  extension pointer const;
+  client pointer const;
+  frame pointer const;
+  ackFrame pointer const;
+end-pr;
+
+dcl-pr stomp_ext_nack extproc(*dclcase);
+  extension pointer const;
+  client pointer const;
+  frame pointer const;
+  nackFrame pointer const;
 end-pr;
 
 dcl-pr stomp_ext_finalize extproc('stomp_ext_finalize');

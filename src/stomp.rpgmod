@@ -2,7 +2,7 @@
 
 //                          The MIT License (MIT)
 // 
-// Copyright (c) 2017 Mihael Schmidt
+// Copyright (c) 2021 Mihael Schmidt
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy 
 // of this software and associated documentation files (the "Software"), to deal 
@@ -23,50 +23,57 @@
 // SOFTWARE.
 
 
-// TODO support for more than CCSID 819 (f. e. utf8) (umlaute?!)
-// TODO support for optional charset
-// TODO support for stomp spec 1.1
-// TODO support for stomp spec 1.2
-// TODO max receiving frame size is 65535
-// TODO use set timeout for net communications (send/recv)
-
-
 ctl-opt nomain;
 
 
 //
 // Prototypes
 //
+dcl-pr stomp_init int(10) extproc(*dclcase) end-pr;
+
 dcl-pr waitForReceipts extproc('waitForReceipts');
   conn pointer const;
 end-pr;
 
-dcl-pr ackMessage;
-  conn pointer const;
-  frame pointer const;
-end-pr;
 
 /define SOCKET_UNIX98
 
-/include 'stomp_h.rpgle'
-/include 'stompframe_h.rpgle'
-/include 'stomputil_h.rpgle'
-/include 'stompparser_h.rpgle'
-/include 'stompext_h.rpgle'
-/include QLOG4RPG,PLOG4RPG
-/include 'net_h.rpgle'
-/include 'socket_h.rpgle'
-/include 'message/message_h.rpgle'
-/include 'libc_h.rpgle'
 /include 'errno_h.rpgle'
+/include 'ilecee.rpginc'
+/include 'libc_h.rpgle'
 /include 'libtree/libtree_h.rpgle'
 /include 'llist/llist_h.rpgle'
+/include 'message/message_h.rpgle'
+/include 'net_h.rpgle'
+/include 'qusec.rpginc'
+/include 'socket_h.rpgle'
+/include 'stomp_h.rpginc'
+/include 'stompext.rpginc'
+/include 'stompframe.rpginc'
+/include 'stomplog.rpginc'
+/include 'stompparser.rpginc'
+/include 'stomputil.rpginc'
 
 
 //
 // Templates
 //
-/include 'stomp_t.rpgle'
+dcl-ds stomp_header_t qualified template;
+  socket int(10);
+  host char(255);
+  port int(10);
+  connected ind;
+  options pointer;
+  sessionId char(100);
+  extension pointer;
+  useReceipts ind;
+  receiptId uns(20);
+  openReceipts pointer;
+  bufferedFrames pointer;
+  transactionId varchar(100);
+  heartbeatServer uns(10);
+  heartbeatClient uns(10);
+end-ds;
 
 
 //
@@ -78,6 +85,30 @@ dcl-s logger pointer;
 //
 // Procedures
 //
+dcl-proc stomp_init export;
+  dcl-pi *n int(10) end-pi;
+
+  dcl-ds errorCode likeds(qusec_t) inz;
+
+  logger = stomp_log_create('stomp');
+
+  cee4rage2(%paddr(stomp_exitHandler) : errorCode);
+  
+  return 0;
+end-proc;
+
+  
+dcl-proc stomp_exitHandler;
+  dcl-pi *n;
+    activationGroupMark uns(20);
+    reason uns(10);
+    resultCode uns(10);
+    userResultCode uns(10);
+  end-pi;
+
+  stomp_log_dispose(logger);
+end-proc;
+
 
 dcl-proc stomp_create export;
   dcl-pi *N pointer;
@@ -104,15 +135,10 @@ dcl-proc stomp_create export;
   header.socket = socket(AF_INET : SOCK_STREAM : PROTOCOL_DEFAULT);
   if (header.socket = -1);
     errPtr = errno();
-    message_sendEscapeMessageToCaller(
-    	'Could not create socket. ' + %char(c_err) + ': ' + %str(strerror(c_err)));
+    message_escape('Could not create socket. ' + %char(c_err) + ': ' + %str(strerror(c_err)));
   endif;
  
-  if (logger = *null);
-    logger = Logger_getLogger('rpgnextgen.stomp');
-  endif;
- 
-  Logger_info(logger : 'stomp client created');
+  stomp_log(logger : 'STOMP client created');
  
   return ptr;
 end-proc;
@@ -135,11 +161,9 @@ dcl-proc stomp_open export;
   socket_address_inet.port = header.port;
   socket_address_inet.zero = *allx'00';
   
-  if (connect(header.socket : %addr(socket_address_inet) :
-              %size(socket_address_inet)) = -1);
+  if (connect(header.socket : %addr(socket_address_inet) : %size(socket_address_inet)) = -1);
     errPtr = errno();
-    message_sendEscapeMessageToCaller(
-        'Could not open socket connection. ' + %char(c_err) + ': ' + %str(strerror(c_err)));
+    message_escape('Could not open socket connection. ' + %char(c_err) + ': ' + %str(strerror(c_err)));
   endif;
   
   // set timeout
@@ -148,15 +172,13 @@ dcl-proc stomp_open export;
     
     if (setsockopt(header.socket : SOL_SOCKET: SO_RCVTIMEO : %addr(timeout) : %size(timeout)) = -1);
       errPtr = errno();
-      message_sendEscapeMessageToCaller(
-        'Could not set socket timeout. ' + %char(c_err) + ': ' + %str(strerror(c_err)));
+      message_escape('Could not set socket timeout. ' + %char(c_err) + ': ' + %str(strerror(c_err)));
     endif;
   endif;
        
   header.connected = *on;
   
-  Logger_info(logger : 'socket connection established to ' +
-                        %trimr(header.host) + ':' + %char(header.port));
+  stomp_log(logger : 'socket connection established to ' + %trimr(header.host) + ':' + %char(header.port));
 end-proc;
 
 
@@ -172,7 +194,7 @@ dcl-proc stomp_close export;
     header.connected = *off;
   endif;
 
-  Logger_info(logger : 'socket connection closed');
+  stomp_log(logger : 'socket connection closed');
 end-proc;
 
 
@@ -197,7 +219,7 @@ dcl-proc stomp_finalize export;
   list_dispose(header.openReceipts);
   list_dispose(header.bufferedFrames);
 
-  Logger_info(logger : 'stomp client disposed');
+  stomp_log(logger : 'STOMP client disposed');
 
   dealloc(n) conn;
 end-proc;
@@ -214,9 +236,8 @@ dcl-proc stomp_setTimeout export;
 
   timeout.seconds = mseconds / 1000;
   timeout.useconds = %rem(mseconds : 1000) * 1000;
-  tree_rb_int_put(header.options : STOMP_OPTION_TIMEOUT :
-                  %addr(timeout) : %size(timeout));
-  Logger_debug(logger : 'set timeout: ' + %char(mseconds) + 'ms');
+  tree_rb_int_put(header.options : STOMP_OPTION_TIMEOUT : %addr(timeout) : %size(timeout));
+  stomp_log(logger : 'set timeout: ' + %char(mseconds) + 'ms');
 end-proc;
 
 
@@ -232,7 +253,7 @@ dcl-proc stomp_setVirtualHost export;
   virtualHost = pVirtualHost;
   tree_rb_int_put(header.options : STOMP_OPTION_VIRTUAL_HOST :
                   %addr(virtualHost : *DATA) : %len(virtualHost));
-  Logger_debug(logger : 'set virtual host: ' + pVirtualHost);
+  stomp_log(logger : 'set virtual host: ' + pVirtualHost);
 end-proc;
 
 
@@ -248,23 +269,38 @@ dcl-proc stomp_setClientId export;
   clientId = pClientId;
   tree_rb_int_put(header.options : STOMP_OPTION_CLIENT_ID :
                   %addr(clientId : *DATA) : %len(clientId));
-  Logger_debug(logger : 'set client id: ' + pClientId);
+  stomp_log(logger : 'set client id: ' + pClientId);
+end-proc;
+
+
+dcl-proc stomp_setContentType export;
+  dcl-pi *N;
+    conn pointer const;
+    pContentType varchar(100) const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_header_t) based(conn);
+  dcl-s contentType varchar(100);
+
+  contentType = pContentType;
+  tree_rb_int_put(header.options : STOMP_OPTION_CONTENT_TYPE :
+                  %addr(contentType : *DATA) : %len(contentType));
+  stomp_log(logger : 'set content type: ' + contentType);
 end-proc;
 
 
 dcl-proc stomp_setAckMode export;
   dcl-pi *N;
     conn pointer const;
-    pMode char(10) const;
+    pMode varchar(100) const;
   end-pi;
   
   dcl-ds header likeds(stomp_header_t) based(conn);
-  dcl-s mode char(10);
+  dcl-s mode varchar(100);
 
   mode = pMode;
-  tree_rb_int_put(header.options : STOMP_OPTION_ACK :
-                  %addr(mode) : %len(%trimr(mode)));
-  Logger_debug(logger : 'set ack mode: ' + pMode);
+  tree_rb_int_put(header.options : STOMP_OPTION_ACK : %addr(mode : *data) : %len(mode));
+  stomp_log(logger : 'set ack mode: ' + pMode);
 end-proc;
 
 
@@ -280,7 +316,7 @@ dcl-proc stomp_setDurableSubscriberName export;
   name = pName;
   tree_rb_int_put(header.options : STOMP_OPTION_DURABLE_SUBSCRIBER :
                   %addr(name : *DATA) : %len(name));
-  Logger_debug(logger : 'set durable subscriber: ' + pName);
+  stomp_log(logger : 'set durable subscriber: ' + pName);
 end-proc;
 
 
@@ -310,9 +346,8 @@ dcl-proc stomp_setPersistMessages export;
     value = 'false';
   endif;
 
-  tree_rb_int_put(header.options : STOMP_OPTION_PERSISTENT :
-                  %addr(value : *DATA) : %len(value));
-  Logger_debug(logger : 'set persist messages: ' + value);
+  tree_rb_int_put(header.options : STOMP_OPTION_PERSISTENT : %addr(value : *DATA) : %len(value));
+  stomp_log(logger : 'set persist messages: ' + value);
 end-proc;
 
 dcl-proc stomp_sendFrame export;
@@ -322,37 +357,32 @@ dcl-proc stomp_sendFrame export;
   end-pi;
   
   dcl-ds header likeds(stomp_header_t) based(conn);
-  dcl-s length int(10);
-  dcl-s ptr pointer;
-  dcl-s backupPtr pointer;
+  dcl-ds buffer likeds(stomp_util_buffer_t);
   dcl-s rc int(10);
-  dcl-s receiptid like(stomp_receiptid_t);
-
-  Logger_info(logger : 'sending ' + stomp_frame_getCommand(frame) + ' frame');
+  dcl-s receiptId like(stomp_receiptid_t);
   
-  // all frame (except the CONNECT frame) might get a receipt header
+  stomp_log(logger : 'sending ' + stomp_frame_getCommand(frame) + ' frame');
+  
+  // all frames (except the CONNECT frame) might get a receipt header
   if (stomp_frame_getCommand(frame) <> 'CONNECT' and
       stomp_isUsingReceipts(conn));
-    receiptid = %char(%timestamp() : *ISO);
-    stomp_frame_setHeader(frame : 'receipt' : receiptid);
+    receiptId = nextReceiptId(conn);
+    stomp_frame_setHeader(frame : 'receipt' : receiptId);
     stomp_addOpenReceipt(conn : receiptid);
   endif;
   
-  ptr = stomp_frame_toString(frame);
-  backupPtr = ptr;
+  buffer = stomp_frame_serialize(frame);
   
-  length = strlen(ptr);
-  translateToAscii(ptr : length);
-  ptr = backupPtr;
-  rc = send(header.socket : ptr : length + 1 : 0);
+  rc = send(header.socket : buffer.data : buffer.length : 0);
   
-  Logger_debug(logger : 'sent ' + %char(rc) + ' bytes');
+  stomp_log(logger : 'sent ' + %char(rc) + ' bytes');
   
   if (stomp_isUsingReceipts(conn));
     waitForReceipts(conn);
   endif;
   
-  dealloc(n) ptr;
+  on-exit;
+    stomp_util_buffer_dispose(buffer);
 end-proc;
 
 
@@ -364,44 +394,109 @@ dcl-proc stomp_receiveFrame export;
   dcl-ds header likeds(stomp_header_t) based(conn);
   dcl-s length int(10);
   dcl-s ptr pointer;
-  dcl-s backupPtr pointer;
   dcl-s rc int(10);
   dcl-s returnFrame pointer;
-  dcl-s receipt char(50);
   dcl-s bufferedFrame pointer based(tmpPtr);
+  dcl-s running ind inz(*on);
 
-  Logger_debug(logger : 'receiving frames ...');
+  stomp_log(logger : 'receiving frames ...');
   
   // return next buffered frames
   if (not list_isEmpty(header.bufferedFrames));
     tmpPtr =list_getFirst(header.bufferedFrames);
     list_removeFirst(header.bufferedFrames);
-    Logger_debug(logger : 'return buffered frame ' + stomp_frame_getCommand(bufferedFrame));
-    ackMessage(conn : bufferedFrame);
+    stomp_log(logger : 'return buffered frame ' + stomp_frame_getCommand(bufferedFrame));
     return bufferedFrame;
   endif;
   
-  ptr = %alloc(65535);
-  length = 65535;
+  length = STOMP_MAX_FRAME_SIZE;
+  ptr = %alloc(length);
   
-  rc = recv(header.socket : ptr : length : 0);
-  if (rc = -1);
-    Logger_debug(logger : 'no data received from connection');
+  dow (running);
+    rc = recv(header.socket : ptr : length : 0);
+    if (rc = 1 or rc = 2);
+      if (isHeartbeat(ptr : rc));
+        stomp_log(logger : 'received heartbeat');
+      else;
+        stomp_log(logger : 'dropping invalid heartbeat data');
+      endif;
+    elseif (rc > 0);
+      stomp_log(logger : 'received ' + %char(rc) + ' bytes');
+  
+      returnFrame = stomp_parser_parse(ptr : rc);
+      
+      stomp_log(logger : 'received ' + stomp_frame_getCommand(returnFrame) + ' frame');
+      
+      if (stomp_frame_getCommand(returnFrame) = 'CONNECTED');
+        checkHeartbeatNegotiation(conn : returnFrame);
+      endif;
+      
+      running = *off;
+    else;
+      stomp_log(logger : 'no data received from connection');
+      running = *off;
+    endif;
+  enddo;
+  
+  return returnFrame;
+  
+  on-exit;
+    dealloc ptr;
+end-proc;
+
+
+dcl-proc isHeartbeat;
+  dcl-pi *n ind;
+    data pointer const;
+    length int(10) const;
+  end-pi;
+
+  // in UTF-8 and UCS-2
+  dcl-c CR u'000D';
+  dcl-c LF u'000A';
+  dcl-c CRLF u'000A000D';
+  
+  dcl-s value1 char(1) ccsid(*utf8) based(data);
+  dcl-s value2 char(2) ccsid(*utf8) based(data);
+  
+  if (length = 1);
+    return value1 = CR or value1 = LF;
+  elseif (length = 2);
+    return value2 = CRLF;
   else;
-    backupPtr = ptr;
-    length = rc;
-    translateFromAscii(ptr : length);
-    ptr = backupPtr;
-    returnFrame = stomp_frame_parse(ptr);
-    
-    Logger_debug(logger : 'received ' + stomp_frame_getCommand(returnFrame) + ' frame');
+    return *off;
+  endif;
+end-proc;
+
+
+dcl-proc checkHeartbeatNegotiation;
+  dcl-pi *n;
+    client pointer const;
+    frame pointer const;
+  end-pi;
+
+  dcl-s heartbeat varchar(100);
+  dcl-s serverHeartbeat uns(10);
+  dcl-s success ind inz(*on);
   
-    ackMessage(conn : returnFrame);
+  heartbeat = stomp_frame_getHeader(frame : 'heart-beat');
+  if (heartbeat = *blank);
+    if (stomp_getHeartbeatServer(client) <> STOMP_HEARTBEAT_NONE);
+      stomp_log(logger : 'Failed heartbeat negotiation. Server sends no heartbeat.');
+      success = *off;
+    endif;
+  else;
+    serverHeartbeat = %uns(%subst(heartbeat : 1 : %scan(',' : heartbeat)-1));
+    if (serverHeartbeat <> stomp_getHeartbeatServer(client));
+      stomp_log(logger : 'Failed heartbeat negotiation. Server heartbeat interval: ' + 
+          %char(serverHeartbeat));
+      success = *off;
+    endif;
   endif;
   
-  dealloc(n) backupPtr;
-
-  return returnFrame;
+  if (success);
+    stomp_log(logger : 'Heartbeat negotiation successful');
+  endif;
 end-proc;
 
 
@@ -414,37 +509,13 @@ dcl-proc stomp_setExtension export;
   dcl-ds header likeds(stomp_header_t) based(conn);
 
   if (header.extension <> *null);
-    Logger_debug(logger : 'replace extension: ' +
-                          stomp_ext_getId(header.extension));
+    stomp_log(logger : 'replace extension: ' + stomp_ext_getId(header.extension));
     stomp_ext_finalize(header.extension);
   endif;
 
   header.extension = extension;
 
-  Logger_debug(logger : 'set extension: ' + stomp_ext_getId(extension));
-end-proc;
-
-
-dcl-proc stomp_setExtensionByName export;
-  dcl-pi *N;
-    conn pointer const;
-    extensionName char(10) const;
-    userdata pointer const options(*nopass : *string);
-    procedureName char(256) const options(*nopass);
-  end-pi;
-  
-  dcl-ds header likeds(stomp_header_t) based(conn);
-  dcl-s extension pointer;
-
-  if (%parms() = 2);
-    extension = stomp_ext_create(extensionName);
-  elseif (%parms() = 3);
-    extension = stomp_ext_create(extensionName : userdata);
-  elseif (%parms() = 4);
-    extension = stomp_ext_create(extensionName : userdata : procedureName);
-  endif;
-
-  stomp_setExtension(conn : extension);
+  stomp_log(logger : 'set extension: ' + stomp_ext_getId(extension));
 end-proc;
 
 
@@ -469,7 +540,7 @@ dcl-proc stomp_useReceipts export;
 
   header.useReceipts = value;
 
-  Logger_debug(logger : 'set using receipts: ' + value);
+  stomp_log(logger : 'set using receipts: ' + value);
 end-proc;
 
 
@@ -521,7 +592,7 @@ dcl-proc stomp_setSessionId export;
 
   header.sessionId = session;
 
-  Logger_debug(logger : 'set session id: ' + session);
+  stomp_log(logger : 'set session id: ' + session);
 end-proc;
 
 
@@ -535,9 +606,9 @@ dcl-proc stomp_addOpenReceipt export;
   dcl-ds header likeds(stomp_header_t) based(conn);
 
   receipt = pReceipt;
-  list_addString(header.openReceipts : receipt);
+  list_add(header.openReceipts : %addr(receipt : *data) : %len(receipt));
 
-  Logger_debug(logger : 'added open receipt: ' + receipt);
+  stomp_log(logger : 'added open receipt: ' + receipt);
 end-proc;
 
 
@@ -562,7 +633,7 @@ end-proc;
 // all non RECEIPT frames will be buffered and returned by calling the
 // <em>stomp_receiveFrame</em> procedure.
 //
-// \param Pointer to client
+// @param Pointer to client
 ///
 dcl-proc waitForReceipts;
   dcl-pi *N;
@@ -572,55 +643,49 @@ dcl-proc waitForReceipts;
   dcl-ds header likeds(stomp_header_t) based(conn);
   dcl-s rc int(10);
   dcl-s ptr pointer;
-  dcl-s backupPtr pointer;
   dcl-s length int(10);
   dcl-s frame pointer;
   dcl-s receiptId like(stomp_receiptid_t);
   dcl-s x int(10);
 
-  Logger_debug(logger : 'waiting for receipts ...');
+  stomp_log(logger : 'waiting for receipts ...');
   
-  length = 65535;
+  length = STOMP_MAX_FRAME_SIZE;
   ptr = %alloc(length);
   
   dow (not list_isEmpty(header.openReceipts));
-  
     rc = recv(header.socket : ptr : length : 0);
   
-    if (rc = -1);
-      Logger_debug(logger : 'no data received from connection');
+    if (rc <= 0);
+      stomp_log(logger : 'no data received from connection');
+      leave;
     else;
-      backupPtr = ptr;
-      length = rc;
-      translateFromAscii(ptr : length);
-      ptr = backupPtr;
+      frame = stomp_parser_parse(ptr : rc);
   
-      frame = stomp_frame_parse(ptr);
-  
-      Logger_debug(logger : 'received ' + stomp_frame_getCommand(frame) + ' frame');
+      stomp_log(logger : 'received ' + stomp_frame_getCommand(frame) + ' frame');
   
       if (stomp_frame_getCommand(frame) = 'RECEIPT');
-        receiptId = stomp_frame_getHeaderValue(frame : 'receipt-id');
+        receiptId = stomp_frame_getHeader(frame : 'receipt-id');
   
-        Logger_debug(logger : 'received receipt with id: ' + receiptId);
+        stomp_log(logger : 'received receipt with id: ' + receiptId);
   
         x = list_indexOf(header.openReceipts : %addr(receiptId : *DATA) :
                          %len(receiptId));
         if (x >=0); // open receipt found
           list_remove(header.openReceipts : x);
-          Logger_debug(logger : 'removed receipt ' + receiptId +
-                                ' from open receipt list (position ' +
-                                %char(x) + ')');
+          stomp_log(logger : 'removed receipt ' + receiptId +
+                             ' from open receipt list (position ' +
+                             %char(x) + ')');
         else;
-          Logger_warn(logger : 'receipt ' + receiptId + ' is not in the ' +
-                               'list of open receipts');
+          stomp_log(logger : 'receipt ' + receiptId + ' is not in the ' +
+                             'list of open receipts');
         endif;
   
       else;
         // no receipt => add frame to buffered frames
         list_add(header.bufferedFrames : %addr(frame) : %size(frame));
-        Logger_debug(logger : 'buffered frame ' + stomp_frame_getCommand(frame) +
-                              '. waiting for receipt ...');
+        stomp_log(logger : 'buffered frame ' + stomp_frame_getCommand(frame) +
+                           '. waiting for receipt ...');
       endif;
     endif;
   
@@ -630,40 +695,64 @@ dcl-proc waitForReceipts;
 end-proc;
 
 
-///
-// Ack Message Frame
-//
-// If the frame is a MESSAGE frame and the ack mode is "client"
-// then an ACK frame must be send with the message id from the
-// original frame.
-//
-// \param Connection
-// \param Frame
-///
-dcl-proc ackMessage;
-  dcl-pi *N;
-    conn pointer const;
-    frame pointer const;
+dcl-proc stomp_setTransactionId export;
+  dcl-pi *n;
+    client pointer const;
+    transactionId varchar(100) const;
+  end-pi;
+
+  dcl-ds header likeds(stomp_header_t) based(client);
+  
+  header.transactionId = transactionId;
+end-proc;
+
+
+dcl-proc stomp_getTransactionId export;
+  dcl-pi *n varchar(100);
+    client pointer const;
   end-pi;
   
-  dcl-ds header likeds(stomp_header_t) based(conn);
-  dcl-s ackFrame pointer;
-  dcl-ds node likeds(tree_node_int_t) based(nodePtr);
+  dcl-ds header likeds(stomp_header_t) based(client);
+  
+  return header.transactionId;
+end-proc;
 
-  if (frame <> *null and stomp_frame_getCommand(frame) = 'MESSAGE');
- 
-    if (tree_rb_int_containsKey(header.options : STOMP_OPTION_ACK));
-      nodePtr = tree_rb_int_get(header.options : STOMP_OPTION_ACK);
- 
-      if (%str(node.value) = STOMP_ACK_MODE_CLIENT);
-        ackFrame = stomp_frame_create('ACK');
-        stomp_frame_setHeader(ackFrame : 'message-id' :
-            stomp_frame_getHeaderValue(frame : 'message-id'));
-        stomp_sendFrame(conn : ackFrame);
-        stomp_frame_finalize(ackFrame);
-      endif;
- 
-    endif;
- 
+
+dcl-proc stomp_setHeartbeatServer export;
+  dcl-pi *n;
+    client pointer const;
+    heartbeatValue uns(10) const;
+  end-pi;
+
+  dcl-ds header likeds(stomp_header_t) based(client);
+  
+  header.heartbeatServer = heartbeatValue;
+end-proc;
+
+
+dcl-proc stomp_getHeartbeatServer export;
+  dcl-pi *n uns(10);
+    client pointer const;
+  end-pi;
+
+  dcl-ds header likeds(stomp_header_t) based(client);
+  
+  return header.heartbeatServer;
+end-proc;
+
+
+dcl-proc nextReceiptId;
+  dcl-pi *n varchar(100);
+    client pointer const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_header_t) based(client);
+  
+  if (header.receiptId = *hival);
+    header.receiptId = 0;
   endif;
+  
+  header.receiptId += 1;
+  
+  return 'msg-' + %char(header.receiptId);
 end-proc;

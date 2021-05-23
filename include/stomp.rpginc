@@ -1,0 +1,14 @@
+**FREE
+
+/if defined(STOMP_MERGED)
+/eof
+/endif
+
+/define STOMP_MERGED
+
+/include 'stomp_h.rpginc'
+/include 'stompcmd.rpginc'
+/include 'stompframe.rpginc'
+/include 'stompext.rpginc'
+/include 'stompparser.rpginc'
+/include 'stomputil.rpginc'

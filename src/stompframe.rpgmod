@@ -1,0 +1,508 @@
+**FREE
+
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2021 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+ctl-opt nomain;
+
+
+dcl-pr stomp_frame_init int(10) extproc(*dclcase) end-pr;
+
+dcl-pr isValidFrame ind;
+  frame pointer const;
+end-pr;
+
+/include 'ilecee.rpginc'
+/include 'libc_h.rpgle'
+/include 'llist/llist_h.rpgle'
+/include 'message/message_h.rpgle'
+/include 'mimetype.rpginc'
+/include 'qusec.rpginc'
+/include 'stomp_h.rpginc'
+/include 'stomplog.rpginc'
+/include 'stompframe.rpginc'
+/include 'stomputil.rpginc'
+/include 'unicode.rpginc'
+
+
+dcl-s commands char(20) dim(15) ctdata;
+
+dcl-s logger pointer;
+
+// in UTF-8 and UCS-2
+dcl-c CR u'000D';
+dcl-c LF u'000A';
+
+dcl-ds stomp_frame_t qualified template;
+  command like(stomp_frame_command);
+  headers pointer;
+  body pointer;
+  bodyLength uns(10);
+end-ds;
+
+
+dcl-proc stomp_frame_init export;
+  dcl-pi *n int(10) end-pi;
+
+  dcl-ds errorCode likeds(qusec_t) inz;
+
+  logger = stomp_log_create('stomp.frame');
+
+  cee4rage2(%paddr(stomp_frame_exitHandler) : errorCode);
+
+  return 0;
+end-proc;
+
+
+dcl-proc stomp_frame_exitHandler;
+  dcl-pi *n;
+    activationGroupMark uns(20);
+    reason uns(10);
+    resultCode uns(10);
+    userResultCode uns(10);
+  end-pi;
+
+  stomp_log_dispose(logger);
+end-proc;
+
+
+dcl-proc stomp_frame_create export;
+  dcl-pi *N pointer;
+    command like(stomp_frame_command) const options(*nopass);
+    pContent varchar(65335) const options(*nopass);
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-s content varchar(65535);
+  
+  framePtr = %alloc(%size(stomp_frame_t));
+  
+  clear frame;
+  frame.headers = list_create();
+  
+  if (%parms() >= 1); // set command
+    stomp_frame_setCommand(framePtr : command);
+  endif;
+  
+  if (%parms() >= 2);
+    // content will be stored null-terminated
+    content = pContent;
+    frame.body = %alloc(%len(content) + 1);
+    frame.bodyLength = %len(content);
+    memcpy(frame.body : %addr(content : *DATA) : %len(content));
+    memset(frame.body + frame.bodyLength : 0 : 1);
+  endif;
+  
+  stomp_log(logger : 'create frame');
+  
+  return framePtr;
+end-proc;
+  
+  
+dcl-proc stomp_frame_finalize export;
+  dcl-pi *N;
+    framePtr pointer;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+
+  if (framePtr = *null);
+    return;
+  endif;
+
+  if (frame.body <> *null);
+    dealloc frame.body;
+  endif;
+
+  if (frame.headers <> *null);
+    list_dispose(frame.headers);
+  endif;
+
+  stomp_log(logger : 'frame disposed');
+ 
+  dealloc(n) framePtr;
+end-proc;
+
+
+dcl-proc stomp_frame_setHeader export;
+  dcl-pi *N;
+    framePtr pointer const;
+    key like(stomp_frame_header_key) const;
+    value like(stomp_frame_header_value) const;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-ds header likeds(stomp_frame_header_t) inz;
+
+  header.key = key;
+  header.value = value;
+  list_addFirst(frame.headers : %addr(header) : %size(header));
+
+  stomp_log(logger : 'set header: ' + key + ' - ' + value);
+end-proc;
+
+
+dcl-proc stomp_frame_removeHeader export;
+  dcl-pi *N;
+    framePtr pointer const;
+    key like(stomp_frame_header_key) const;
+  end-pi;
+
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-ds header likeds(stomp_frame_header_t) based(ptr);
+  dcl-s i int(10);
+  dcl-s x int(10) inz(-1);
+  dcl-s running ind inz(*on);
+  
+  dow (running);
+    reset i;
+    reset x;
+    
+    ptr = list_iterate(frame.headers);
+    dow (ptr <> *null);
+      if (header.key = key);
+        x = i;
+        leave;
+      endif;
+      
+      ptr = list_iterate(frame.headers);
+    enddo;
+  
+    list_resetIteration(frame.headers);
+  
+    if (x >= 0);
+      list_remove(frame.headers : x);
+      stomp_log(logger : 'removed header: ' + %trimr(key));
+    else;
+      running = *off;
+    endif;
+  enddo;
+
+end-proc;
+
+
+dcl-proc stomp_frame_getHeader export;
+  dcl-pi *N like(stomp_frame_header_value);
+    framePtr pointer const;
+    key like(stomp_frame_header_key) const;
+  end-pi;
+
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-ds header likeds(stomp_frame_header_t) based(ptr);
+
+  ptr = list_iterate(frame.headers);
+  dow (ptr <> *null);
+    if (header.key = key);
+      // Only the first header for that key counts.
+      //
+      // From the Spec 1.2:
+      // > If a client or a server receives repeated frame header entries, only 
+      // > the first header entry SHOULD be used as the value of header entry.
+      list_resetIteration(frame.headers);
+      return header.value;
+    endif;
+    
+    ptr = list_iterate(frame.headers);
+  enddo;
+
+  return *blank;
+end-proc;
+
+
+dcl-proc stomp_frame_containsHeader export;
+  dcl-pi *N ind;
+    framePtr pointer const;
+    key like(stomp_frame_header_key) const;
+  end-pi;
+
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-ds header likeds(stomp_frame_header_t) based(ptr);
+  
+  ptr = list_iterate(frame.headers);
+  dow (ptr <> *null);
+    if (header.key = key);
+      list_resetIteration(frame.headers);
+      return *on;
+    endif;
+    
+    ptr = list_iterate(frame.headers);
+  enddo;
+
+  return *off;
+end-proc;
+
+
+dcl-proc stomp_frame_listHeaders export;
+  dcl-pi *N pointer;
+    framePtr pointer const;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+ 
+  return list_copy(frame.headers);
+end-proc;
+
+
+dcl-proc stomp_frame_setCommand export;
+  dcl-pi *N;
+     framePtr pointer const;
+     command like(stomp_frame_command) const;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+ 
+  if (%lookup(command : commands) = 0);
+    message_escape('Invalid STOMP command: ' + command);
+  endif;
+
+  frame.command = command;
+end-proc;
+
+
+dcl-proc stomp_frame_getCommand export;
+  dcl-pi *N like(stomp_frame_command);
+    framePtr pointer const;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+
+  return frame.command;
+end-proc;
+
+
+dcl-proc stomp_frame_setBody export;
+  dcl-pi *N;
+    framePtr pointer const;
+    body pointer const options(*string);
+    length uns(10) const options(*nopass);
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+
+  if (%parms >= 3);
+    frame.bodyLength = length;
+  else;
+    frame.bodyLength = strlen(body);
+  endif;
+  
+  if (frame.body = *null);
+    frame.body = %alloc(frame.bodyLength + 1);
+  else;
+    frame.body = %realloc(frame.body : frame.bodyLength + 1);
+  endif;
+
+  memcpy(frame.body : body : frame.bodyLength);
+  memset(frame.body + frame.bodyLength : 0 : 1);
+
+  stomp_log(logger : 'set body: ' + %str(body : 1000));
+end-proc;
+
+
+dcl-proc stomp_frame_getBody export;
+  dcl-pi *N likeds(stomp_util_buffer_t);
+    framePtr pointer const;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-ds buffer likeds(stomp_util_buffer_t);
+  
+  buffer.data = frame.body;
+  buffer.length = frame.bodyLength;
+  
+  return buffer;
+end-proc;
+
+
+dcl-proc stomp_frame_toString export;
+  dcl-pi *n varchar(STOMP_MAX_FRAME_SIZE) rtnparm;
+    framePtr pointer const;
+  end-pi;
+
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  
+  if (frame.bodyLength > 0);
+    return %str(frame.body : frame.bodyLength);
+  else;
+    return '';
+  endif;
+end-proc;
+
+
+dcl-proc stomp_frame_serialize export;
+  dcl-pi *N likeds(stomp_util_buffer_t);
+    framePtr pointer const;
+  end-pi;
+
+  dcl-ds serialized likeds(stomp_util_buffer_t) inz;
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+  dcl-s sPtr pointer;
+  dcl-s buffer varchar(1103) ccsid(*utf8);
+  dcl-ds header likeds(stomp_frame_header_t) based(headerPtr);
+  dcl-s utf8data varchar(STOMP_MAX_FRAME_SIZE) ccsid(*utf8);
+  dcl-s data char(STOMP_MAX_FRAME_SIZE) based(frame.body);
+  dcl-s charset varchar(100);
+  dcl-s ccsid int(10);
+  dcl-ds convBuffer likeds(stomp_util_buffer_t) inz;
+  
+  if (not isValidFrame(framePtr));
+    message_escape('STOMP frame is not valid');
+  endif;
+  
+  serialized.data = %alloc(STOMP_MAX_FRAME_SIZE);
+  memset(serialized.data : 0 : STOMP_MAX_FRAME_SIZE);
+  
+  // add command
+  sPtr = serialized.data;
+  buffer = frame.command + CR + LF;
+  memcpy(sPtr : %addr(buffer : *data) : %len(buffer));
+  serialized.length = %len(buffer);
+  
+  // add headers
+  headerPtr = list_iterate(frame.headers);
+  dow (headerPtr <> *null);
+    sPtr = serialized.data + serialized.length;
+    buffer = header.key + UNICODE_COLON + header.value + CR + LF;
+    memcpy(sPtr : %addr(buffer : *data) : %len(buffer));
+    serialized.length += %len(buffer);
+    
+    headerPtr = list_iterate(frame.headers);
+  enddo;
+  
+  // add CRLF => seperator between header and body
+  sPtr = serialized.data + serialized.length;
+  buffer = CR + LF;
+  memcpy(sPtr : %addr(buffer : *data) : %len(buffer));
+  serialized.length += %len(buffer);
+  
+  // add content/body
+  if (frame.body <> *null);
+    if (frame.command = 'SEND' or frame.command = 'MESSAGE' or frame.command = 'ERROR');
+    
+      charset = stomp_util_getExplicitCharset(framePtr);
+
+      if (stomp_util_hasBinaryContent(framePtr));
+        // no conversion => copy raw bytes
+        sPtr = serialized.data + serialized.length;
+        memcpy(sPtr : frame.body : frame.bodyLength);
+        serialized.length += frame.bodyLength;
+      elseif (charset <> *blank);
+        // convert to charset
+        ccsid = stomp_mime_charsetToCcsid(charset);
+        if (ccsid = 0);
+          ccsid = 1208; // fallback to utf-8
+        endif;
+        
+        convBuffer = stomp_util_convert(frame.body : frame.bodyLength : ccsid);
+        
+        sPtr = serialized.data + serialized.length;
+        memcpy(sPtr : convBuffer.data : convBuffer.length);
+        serialized.length += convBuffer.length;
+        
+        stomp_util_buffer_dispose(convBuffer);
+      else;
+        // convert to UTF8
+        sPtr = serialized.data + serialized.length;
+        utf8data = %subst(data : 1 : frame.bodyLength);
+        memcpy(sPtr : %addr(utf8data : *data) : %len(utf8data));
+        serialized.length += %len(utf8data);
+      endif;
+      
+    endif;    
+  endif;
+  
+  // add terminating null
+  sPtr = serialized.data + serialized.length;
+  memset(sPtr : 0 : 1);
+  serialized.length += 1;
+  
+  return serialized;
+end-proc;
+
+
+///
+// Dump frame to job log
+//
+// Outputs the passed frame as an INFO message to the job log.
+//
+// @param Frame
+///
+dcl-proc stomp_frame_dump export;
+  dcl-pi *N;
+    frame pointer const;
+  end-pi;
+  
+  dcl-ds buffer likeds(stomp_util_buffer_t);
+
+  buffer = stomp_frame_serialize(frame);
+
+  message_info('FRAMEDUMP: ' + %str(buffer.data : buffer.length));
+
+  stomp_util_buffer_dispose(buffer);
+end-proc;
+
+
+///
+// Validate frame
+//
+// Checks if this frame is a valid stomp frame.
+//
+// @param Frame
+//
+// @return *on = valid stomp frame <br>
+//         *off = invalid stomp frame
+///
+dcl-proc isValidFrame;
+  dcl-pi *N ind;
+    framePtr pointer const;
+  end-pi;
+  
+  dcl-ds frame likeds(stomp_frame_t) based(framePtr);
+
+  if (frame.command = *blank);
+    return *off;
+  endif;
+
+  // check if it is a valid command
+  if (%lookup(frame.command : commands) = 0); // 0 = not found
+    return *off;
+  endif;
+
+  return *on;
+end-proc;
+
+**CTDATA commands
+CONNECT
+SEND
+SUBSCRIBE
+UNSUBSCRIBE
+BEGIN
+COMMIT
+ABORT
+ACK
+NACK
+DISCONNECT
+CONNECTED
+MESSAGE
+RECEIPT
+ERROR
+STOMP

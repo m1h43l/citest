@@ -2,7 +2,7 @@
 
 //                          The MIT License (MIT)
 // 
-// Copyright (c) 2017 Mihael Schmidt
+// Copyright (c) 2021 Mihael Schmidt
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy 
 // of this software and associated documentation files (the "Software"), to deal 
@@ -24,65 +24,9 @@
 
 ctl-opt nomain;
 
-//
-// Prototypes
-//
-dcl-pr stomp_ext_check;
-  extension pointer const;
-end-pr;
 
-/include 'stompext_h.rpgle'
+/include 'stompext.rpginc'
 /include 'message/message_h.rpgle'
-/include 'reflection/reflection_h.rpgle'
-
-
-//
-// Templates
-//
-/include 'stompext_t.rpgle'
-
-
-//
-// Procedures
-//
-
-dcl-proc stomp_ext_create export;
-  dcl-pi *N pointer;
-    extensionName char(10) const;
-    userdata pointer const options(*nopass : *string);
-    procedureName char(256) const options(*nopass);
-  end-pi;
-  
-  dcl-s createProcedureName char(256);
-  dcl-s procedurePointer pointer(*proc);
-  dcl-pr create pointer extproc(procedurePointer);
-    userdata pointer const options(*nopass : *string);
-  end-pr;
-  dcl-s extension pointer;
-  dcl-ds header likeds(stomp_ext_t) based(extension);
-
-  if (%parms() = 3);
-    createProcedureName = procedureName;
-  else;
-    createProcedureName = 'stomp_ext_create';
-  endif;
-  
-  procedurePointer = reflection_getProcedurePointer(
-                             extensionName :
-                             %trimr(createProcedureName));
-  
-  if (procedurePointer <> *null);
-    if (%parms() = 1);
-      extension = create();
-    else;
-      extension = create(userData);
-    endif;
-  
-    stomp_ext_check(extension);
-  endif;
-  
-  return extension;
-end-proc;
 
 
 dcl-proc stomp_ext_getId export;
@@ -114,8 +58,6 @@ dcl-proc stomp_ext_connect export;
     user varchar(100) const options(*nopass);
     pass varchar(100) const options(*nopass);
   end-pr;
-  
-  stomp_ext_check(extension);
 
   connPointer = header.proc_connect;
 
@@ -136,6 +78,8 @@ dcl-proc stomp_ext_send export;
     frame pointer const;
     destination varchar(100) const;
     messageData pointer const options(*string);
+    messageLength uns(10) const options(*omit : *nopass);
+    contentType varchar(100) const options(*nopass);
   end-pi;
   
   dcl-ds header likeds(stomp_ext_t) based(extension);
@@ -147,8 +91,6 @@ dcl-proc stomp_ext_send export;
     destination varchar(100) const;
     messageData pointer const options(*string);
   end-pr;
-
-  stomp_ext_check(extension);
 
   sendPointer = header.proc_send;
 
@@ -170,8 +112,6 @@ dcl-proc stomp_ext_disconnect export;
     client pointer const;
     frame pointer const;
   end-pr;
-
-  stomp_ext_check(extension);
 
   disconnectPointer = header.proc_disconnect;
 
@@ -196,8 +136,6 @@ dcl-proc stomp_ext_subscribe export;
     destination varchar(100) const;
   end-pr;
   
-  stomp_ext_check(extension);
-
   subscribePointer = header.proc_subscribe;
 
   subscribe(extension : client : frame : destination);
@@ -221,11 +159,120 @@ dcl-proc stomp_ext_unsubscribe export;
     destination varchar(100) const;
   end-pr;
   
-  stomp_ext_check(extension);
-
   unsubscribePointer = header.proc_unsubscribe;
 
   unsubscribe(extension : client : frame : destination);
+end-proc;
+
+
+dcl-proc stomp_ext_begin export;
+  dcl-pi *N;
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+    transactionId varchar(100) const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_ext_t) based(extension);
+  dcl-s beginPointer pointer(*proc);
+  dcl-pr begin extproc(beginPointer);
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+    transactionId varchar(100) const;
+  end-pr;
+  
+  beginPointer = header.proc_abort;
+
+  begin(extension : client : frame : transactionId);
+end-proc;
+
+
+dcl-proc stomp_ext_commit export;
+  dcl-pi *N;
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_ext_t) based(extension);
+  dcl-s commitPointer pointer(*proc);
+  dcl-pr l_commit extproc(commitPointer);
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+  end-pr;
+  
+  commitPointer = header.proc_abort;
+
+  l_commit(extension : client : frame);
+end-proc;
+
+
+dcl-proc stomp_ext_abort export;
+  dcl-pi *N;
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_ext_t) based(extension);
+  dcl-s abortPointer pointer(*proc);
+  dcl-pr abort extproc(abortPointer);
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+  end-pr;
+  
+  abortPointer = header.proc_abort;
+
+  abort(extension : client : frame);
+end-proc;
+
+
+dcl-proc stomp_ext_ack export;
+  dcl-pi *N;
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+    ackFrame pointer const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_ext_t) based(extension);
+  dcl-s ackPointer pointer(*proc);
+  dcl-pr ack extproc(ackPointer);
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+    ackFrame pointer const;
+  end-pr;
+  
+  ackPointer = header.proc_ack;
+
+  ack(extension : client : frame : ackFrame);
+end-proc;
+
+
+dcl-proc stomp_ext_nack export;
+  dcl-pi *N;
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+    nackFrame pointer const;
+  end-pi;
+  
+  dcl-ds header likeds(stomp_ext_t) based(extension);
+  dcl-s nackPointer pointer(*proc);
+  dcl-pr nack extproc(nackPointer);
+    extension pointer const;
+    client pointer const;
+    frame pointer const;
+    nackFrame pointer const;
+  end-pr;
+  
+  nackPointer = header.proc_nack;
+
+  nack(extension : client : frame : nackFrame);
 end-proc;
 
 
@@ -240,8 +287,6 @@ dcl-proc stomp_ext_finalize export;
     extension pointer;
   end-pr;
   
-  stomp_ext_check(extension);
-
   finalizePointer = header.proc_finalize;
 
   finalize(extension);
@@ -253,45 +298,4 @@ dcl-proc stomp_ext_finalize export;
         // nothing
     endmon;
   endif;
-end-proc;
-
-
-dcl-proc stomp_ext_check;
-  dcl-pi *N;
-    extension pointer const;
-  end-pi;
-
-  dcl-ds header likeds(stomp_ext_t) based(extension);
-  dcl-s cachedExtensionId like(stomp_ext_t.id) static;
-  dcl-s extensionChecked ind inz(*off) static;
-
-  if (header.id = cachedExtensionId and extensionChecked);
-    return;
-  endif;
-
-  extensionChecked = *off;
-
-  if (header.proc_connect = *null);
-    message_sendEscapeMessageToCaller(
-        'STOMP Extension Interface: Incomplete Implementation (connect) ' + %trimr(header.id) + '.');
-  elseif (header.proc_finalize = *null);
-    message_sendEscapeMessageToCaller(
-        'STOMP Extension Interface: Incomplete Implementation (finalize) ' + %trimr(header.id) + '.');
-  elseif (header.proc_disconnect = *null);
-    message_sendEscapeMessageToCaller(
-        'STOMP Extension Interface: Incomplete Implementation (disconnect) ' + %trimr(header.id) +  '.');
-  elseif (header.proc_send = *null);
-    message_sendEscapeMessageToCaller(
-        'STOMP Extension Interface: Incomplete Implementation (send) ' + %trimr(header.id) + '.');
-  elseif (header.proc_subscribe = *null);
-    message_sendEscapeMessageToCaller(
-        'STOMP Extension Interface: Incomplete Implementation (subscribe) ' + %trimr(header.id) +  '.');
-  elseif (header.proc_unsubscribe = *null);
-    message_sendEscapeMessageToCaller(
-        'STOMP Extension Interface: Incomplete Implementation (unsubscribe) ' + %trimr(header.id) +  '.');
-  endif;
-  
-  cachedExtensionId = header.id;
-  
-  extensionChecked = *on;
 end-proc;

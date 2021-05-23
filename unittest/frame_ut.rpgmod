@@ -1,0 +1,406 @@
+**FREE
+
+
+ctl-opt nomain;
+
+/include 'ifsio_h.rpgle'
+/include 'libc_h.rpgle'
+/include 'stompframe_h.rpgle'
+/include RPGUNIT/QINCLUDE,TESTCASE
+
+dcl-pr cvthc extproc(*dclcase);
+  hexValue pointer value;
+  charValue pointer value;
+  hexValueSize int(10) value;
+end-pr;
+
+
+dcl-proc test_frame_create export;
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('CONNECT');
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_createWithContent export;
+  dcl-s frame pointer;
+  dcl-s content varchar(100);
+  
+  content = '{ "item" : 331 , "name" : "Trend Scharniere 135ø, 2 Stck" }';
+  
+  frame = stomp_frame_create('SEND' : %addr(content : *DATA) : %len(content));
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_invalidCommand export;
+  dcl-s frame pointer;
+  
+  monitor;
+    frame = stomp_frame_create('NO_VALID_COMMAND');
+    fail('An invalid command should trigger an escape message.');
+  on-error *all;
+    assert(frame = *null : 'Failed frame create should should yield no value.');
+  endmon;
+end-proc;
+
+
+dcl-proc test_frame_setNewHeader export;
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.2');
+  stomp_frame_addHeader(frame : 'login' : 'username');
+  stomp_frame_addHeader(frame : 'passcode' : 'secret');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_setEmptyHeaderKey export;
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : '' : '1.2');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_setEmptyHeaderValue export;
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_setDuplicateHeaderKey export;
+  dcl-s frame pointer;
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.1');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.2');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getHeader export;
+  dcl-s frame pointer;
+  dcl-s value like(stomp_frame_header_value);
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.2');
+  stomp_frame_addHeader(frame : 'login' : 'username');
+  stomp_frame_addHeader(frame : 'passcode' : 'secret');
+  
+  value = stomp_frame_getHeaderValue(frame : 'accept-version');
+  aEqual('1.2' : value);
+  value = stomp_frame_getHeaderValue(frame : 'login');
+  aEqual('username' : value);
+  value = stomp_frame_getHeaderValue(frame : 'passcode');
+  aEqual('secret' : value);
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getEmptyHeaderKey export;
+  dcl-s frame pointer;
+  dcl-s value like(stomp_frame_header_value);
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : '' : '1.2');
+  
+  value = stomp_frame_getHeaderValue(frame : '');
+  aEqual('1.2' : value);
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getEmptyHeaderValue export;
+  dcl-s frame pointer;
+  dcl-s value like(stomp_frame_header_value);
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '');
+  
+  value = stomp_frame_getHeaderValue(frame : 'accept-version');
+  aEqual('' : value);
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getDuplicateHeaderKey export;
+  dcl-s frame pointer;
+  dcl-s value like(stomp_frame_header_value) ccsid(*utf8);
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.1');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.2');
+  
+  value = stomp_frame_getHeaderValue(frame : 'accept-version');
+  aEqual(utf8('1.2') : value);
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getNotExistingHeader export;
+  dcl-s frame pointer;
+  dcl-s value like(stomp_frame_header_value);
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.2');
+  
+  value = stomp_frame_getHeaderValue(frame : 'logout');
+  aEqual('' : value);
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_setBody export;
+  dcl-s frame pointer;
+  dcl-s value varchar(100);
+  
+  value = 'Mihael Schmidt';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setBody(frame : %addr(value : *DATA) : %len(value));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_setBodyWithNullValues export;
+  dcl-s frame pointer;
+  dcl-s value varchar(100);
+  
+  value = 'Mihael ' + x'00' + ' Schmidt';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setBody(frame : %addr(value : *DATA) : %len(value));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getBodyWithNullValues export;
+  dcl-s frame pointer;
+  dcl-s value varchar(100);
+  dcl-ds content likeds(stomp_string);
+  
+  value = 'Mihael ' + x'00' + ' Schmidt';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setBody(frame : %addr(value : *DATA) : %len(value));
+  content = stomp_frame_getBody(frame);
+  
+  iEqual(%len(value) : content.length);
+  assert(memcmp(%addr(value : *DATA) : content.value : content.length) = 0 : 'Wert mit Null Values nicht gleich');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getBody export;
+  dcl-s frame pointer;
+  dcl-s value varchar(100);
+  dcl-ds content likeds(stomp_string);
+  
+  value = 'Mihael Schmidt';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setBody(frame : %addr(value : *DATA) : %len(value));
+  content = stomp_frame_getBody(frame);
+  
+  iEqual(%len(value) : content.length);
+  assert(memcmp(%addr(value : *DATA) : content.value : content.length) = 0 : 'Werte von Frame Body nicht gleich');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_setCharBody export;
+  dcl-s frame pointer;
+  dcl-s value varchar(100) ccsid(*utf8);
+  dcl-ds content likeds(stomp_string);
+  
+  value = 'Mihael Schmidt';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setCharBody(frame : value);
+  content = stomp_frame_getBody(frame);
+  
+  iEqual(%len(value) : content.length);
+  assert(memcmp(%addr(value : *DATA) : content.value : content.length) = 0 : 'Wert nicht gleich');
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_getCharBody export;
+  dcl-s frame pointer;
+  dcl-s value varchar(100);
+  dcl-ds content likeds(stomp_string);
+  
+  value = 'Mihael Schmidt';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_setCharBody(frame : value);
+  aEqual(utf8('Mihael Schmidt') : stomp_frame_getCharBody(frame));
+  
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_connectFrame export;
+  dcl-s frame pointer;
+  dcl-ds serialized likeds(stomp_string);
+  dcl-s expectedResult char(10000);
+  dcl-s hexResult char(10000);
+  
+  frame = stomp_frame_create('CONNECT');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.2');
+  stomp_frame_addHeader(frame : 'host' : 'debfml02');
+  
+  serialized = stomp_frame_toString(frame);
+  
+  expectedResult = loadTestResultFromFile('unittest/testresults/test_frame_connectFrame.txt');
+  cvthc(%addr(hexResult) : serialized.value : serialized.length * 2);
+  aEqual(expectedResult : hexResult);
+  
+  dealloc serialized.value;
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_stompFrame export;
+  dcl-s frame pointer;
+  dcl-ds serialized likeds(stomp_string);
+  dcl-s expectedResult char(10000);
+  dcl-s hexResult char(10000);
+  
+  frame = stomp_frame_create('STOMP');
+  stomp_frame_addHeader(frame : 'accept-version' : '1.1,1.2');
+  stomp_frame_addHeader(frame : 'host' : 'debfml02');
+  stomp_frame_addHeader(frame : 'login' : 'username');
+  stomp_frame_addHeader(frame : 'passcode' : 'secret');
+  stomp_frame_addHeader(frame : 'heart-beat' : '0,0');
+  
+  serialized = stomp_frame_toString(frame);
+  
+  expectedResult = loadTestResultFromFile('unittest/testresults/test_frame_stompFrame.txt');
+  cvthc(%addr(hexResult) : serialized.value : serialized.length * 2);
+  aEqual(expectedResult : hexResult);
+  
+  dealloc serialized.value;
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc disabled_test_frame_sendFrame export;
+  dcl-s frame pointer;
+  dcl-ds serialized likeds(stomp_string);
+  dcl-s expectedResult char(10000);
+  dcl-s hexResult char(10000);
+
+  frame = stomp_frame_create('SEND');
+  stomp_frame_addHeader(frame : 'destination' : '/queue/item');
+  stomp_frame_addHeader(frame : 'content-type' : 'application/json');
+  stomp_frame_addHeader(frame : 'content-length' : '60');
+  stomp_frame_setCharBody(frame : '{ "item" : 331 , "name" : "Trend Scharniere 135ø, 2 Stck" }');
+  
+  serialized = stomp_frame_toString(frame);
+  
+  expectedResult = loadTestResultFromFile('unittest/testresults/test_frame_sendFrame.txt');
+  cvthc(%addr(hexResult) : serialized.value : serialized.length * 2);
+  aEqual(expectedResult : hexResult);
+  
+  dealloc serialized.value;
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_escapeHeaders export;
+  dcl-s frame pointer;
+  dcl-s CRLF char(2) ccsid(*utf8) inz(x'0D0A');
+  dcl-s headerValue char(9) ccsid(*utf8);
+  dcl-ds serialized likeds(stomp_string);
+  dcl-s expectedResult char(10000);
+  dcl-s hexResult char(10000);
+  
+  headerValue = 'abc:d' + CRLF + 'efg';
+  
+  frame = stomp_frame_create('SEND');
+  stomp_frame_addHeader(frame : 'additional' : headerValue);
+  stomp_frame_addHeader(frame : 'path' : 'C:\data');
+  
+  serialized = stomp_frame_toString(frame);
+  
+  expectedResult = loadTestResultFromFile('unittest/testresults/test_frame_escapeHeaders.txt');
+  cvthc(%addr(hexResult) : serialized.value : serialized.length * 2);
+  aEqual(expectedResult : hexResult);
+  
+  dealloc serialized.value;
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc test_frame_ignoreNotAllowedBody export;
+  dcl-s frame pointer;
+  dcl-ds serialized likeds(stomp_string);
+  dcl-s expectedResult char(10000);
+  dcl-s hexResult char(10000);
+  
+  frame = stomp_frame_create('BEGIN');
+  stomp_frame_addHeader(frame : 'transaction' : 'tx1');
+  stomp_frame_setCharBody(frame : 'invalid body');
+  
+  serialized = stomp_frame_toString(frame);
+  
+  expectedResult = loadTestResultFromFile('unittest/testresults/test_frame_ignoreNotAllowedBody.txt');
+  cvthc(%addr(hexResult) : serialized.value : serialized.length * 2);
+  aEqual(expectedResult : hexResult);
+  
+  dealloc serialized.value;
+  stomp_frame_dispose(frame);
+end-proc;
+
+
+dcl-proc loadTestResultFromFile;
+  dcl-pi *n char(10000);
+    path char(1000) const;
+  end-pi;
+
+  dcl-s filehandle int(10);
+  dcl-s buffer char(10000);
+  dcl-s length int(10);
+
+  fileHandle = open(%trimr(path) : O_RDONLY + O_TEXTDATA);
+  
+  length = read(fileHandle : %addr(buffer) : %size(buffer));
+  buffer = %xlate('abcdef' : 'ABCDEF' : buffer);
+
+  if (fileHandle >= 0);
+    callp close(fileHandle);
+  endif;
+  
+  return buffer;
+end-proc;
+
+
+dcl-proc utf8;
+  dcl-pi *n varchar(1000) ccsid(*utf8);
+    string varchar(1000) const;
+  end-pi;
+  
+  return string;
+end-proc;

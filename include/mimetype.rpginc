@@ -1,0 +1,27 @@
+**FREE
+
+/if defined (STOMP_MIMETYPE)
+/eof
+/endif
+
+/define STOMP_MIMETYPE
+
+
+dcl-ds stomp_mime_t qualified template;
+  type varchar(100);
+  subtype varchar(100);
+  charset varchar(100);
+end-ds;
+
+
+dcl-pr stomp_mime_parse likeds(stomp_mime_t) extproc(*dclcase);
+  mimeType char(100) const;
+end-pr;
+
+dcl-pr stomp_mime_toString varchar(1000) extproc(*dclcase);
+  mime likeds(stomp_mime_t) const;
+end-pr;
+
+dcl-pr stomp_mime_charsetToCcsid int(10) extproc(*dclcase);
+  charset varchar(100) const;
+end-pr;

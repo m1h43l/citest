@@ -1,0 +1,418 @@
+**FREE
+
+ctl-opt nomain thread(*concurrent);
+
+
+/include 'ilecee.rpginc'
+/include 'mimetype.rpginc'
+/include 'qusec.rpginc'
+/include 'stomplog.rpginc'
+/include 'unicode.rpginc'
+
+
+dcl-pr stomp_mime_init int(10) extproc(*dclcase) end-pr;
+
+
+// from http://webcheatsheet.com/html/character_sets_list.php
+dcl-s charsets char(50) dim(122) ctdata;
+// from http://help.dottoro.com/laiuuxpb.php
+// and from IBM Globalization Coded character set identifiers
+// http://www-01.ibm.com/software/globalization/ccsid/ccsid_registered.html
+dcl-s ccsids int(10) dim(122) ctdata;
+
+dcl-s logger pointer;
+
+
+dcl-proc stomp_mime_init export;
+  dcl-pi *n int(10) end-pi;
+
+  dcl-ds errorCode likeds(qusec_t) inz;
+
+  logger = stomp_log_create('stomp.mime');
+
+  cee4rage2(%paddr(stomp_mime_exitHandler) : errorCode);
+
+  return 0;
+end-proc;
+
+
+dcl-proc stomp_mime_exitHandler;
+  dcl-pi *n;
+    activationGroupMark uns(20);
+    reason uns(10);
+    resultCode uns(10);
+    userResultCode uns(10);
+  end-pi;
+
+  stomp_log_dispose(logger);
+end-proc;
+
+
+dcl-proc stomp_mime_parse export;
+  dcl-pi *n likeds(stomp_mime_t);
+    p_mimeType char(100) const;
+  end-pi;
+  
+  dcl-c LEGAL_TYPE_CHARS 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-';
+  dcl-c LEGAL_SUBTYPE_CHARS 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-_.';
+  dcl-ds mime likeds(stomp_mime_t) inz;
+  dcl-s mimeType char(100);
+  dcl-s xSlash int(10);
+  dcl-s xSemicolon int(10);
+  dcl-s xEndSubtype int(10);
+  dcl-s xParameter int(10);
+  dcl-s parameter char(100);
+  
+  mimeType = p_mimeType;
+  
+  monitor;
+    //
+    // get type
+    //
+    xSlash = %scan(%char(UNICODE_SLASH) : mimeType);
+    if (xSlash = 0 or xSlash = 1);
+      stomp_log(logger : 'Invalid MIME type: no slash');
+      clear mime;
+      return mime;
+    endif;
+  
+    if (%check(LEGAL_TYPE_CHARS : %subst(mimeType : 1 : xSlash - 1)) > 0);
+      stomp_log(logger : 'Invalid MIME type: illegal char in type');
+      clear mime;
+      return mime;
+    endif;
+    
+    mime.type = %subst(mimeType : 1 : xSlash - 1);
+    
+  
+    //
+    // get subtype
+    // 
+    xSemicolon = %scan(%char(UNICODE_SEMICOLON) : mimeType : xSlash);
+    if (xSemicolon = 0);
+      xEndSubtype = %scan(' ' : mimeType : xSlash);
+    else;
+      xEndSubtype = xSemicolon;
+    endif;
+    
+    if (xEndSubtype > 0 and xEndSubtype > xSlash +1);
+      if (%check(LEGAL_SUBTYPE_CHARS : %subst(mimeType : xSlash + 1 : xEndSubtype - xSlash - 1)) > 0);
+        stomp_log(logger : 'Invalid MIME type: illegal char in subtype');
+        clear mime;
+        return mime;
+      endif;
+      
+      mime.subtype = %subst(mimeType : xSlash + 1 : xEndSubtype - xSlash - 1);
+    endif;
+  
+    
+    // 
+    // get charset
+    //
+    if (xSemicolon > 0);
+      xParameter = %scan(%char(UNICODE_EQUAL) : mimeType : xSemicolon);
+      if (xParameter = 0);
+        stomp_log(logger : 'Invalid MIME type: no parameter value ( = missing)');
+        clear mime;
+        return mime;
+      endif;
+      
+      parameter = %subst(mimeType : xSemicolon+1 : xParameter - xSemicolon - 1);
+      parameter = %triml(parameter);
+      
+      if (parameter = 'charset');
+        mime.charset = %trim(%subst(mimeType : xParameter + 1));
+        if (%scan(' ' : mime.charset) > 0);
+          mime.charset = %subst(mime.charset : 1 : %scan(' ' : mime.charset) - 1);
+        endif;
+        
+        mime.charset = %trim(mime.charset : '"');
+      endif;
+    endif;
+  on-error;
+    clear mime;
+  endmon;
+  
+  return mime;
+end-proc;
+
+
+dcl-proc stomp_mime_toString export;
+  dcl-pi *n varchar(1000);
+    mime likeds(stomp_mime_t) const;
+  end-pi;
+  
+  if (mime.charset = *blank);
+    return mime.type + '/' + mime.subtype;
+  else;
+    return mime.type + '/' + mime.subtype + ';charset="' + mime.charset + '"';
+  endif; 
+end-proc;
+
+
+dcl-proc stomp_mime_charsetToCcsid export;
+  dcl-pi *n int(10);
+    charset varchar(100) const;
+  end-pi;
+  
+  dcl-c uppercase 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  dcl-c lowercase 'abcdefghijklmnopqrstuvwxyz';
+  dcl-s index int(10);
+  dcl-s value char(100);
+  
+  value = %xlate(uppercase : lowercase : charset);
+  index = %lookup(value : charsets);
+  if (index = 0);
+    return 0;
+  else;
+    return ccsids(index);
+  endif;
+end-proc;
+
+
+**CTDATA charsets
+asmo-708
+dos-720
+iso-8859-6
+x-mac-arabic
+windows-1256
+ibm775
+iso-8859-4
+windows-1257
+ibm852
+iso-8859-2
+x-mac-ce
+windows-1250
+euc-cn
+gb2312
+hz-gb-2312
+x-mac-chinesesimp
+big5
+x-chinese-cns
+x-chinese-eten
+x-mac-chinesetrad
+950
+cp866
+iso-8859-5
+koi8-r
+koi8-u
+x-mac-cyrillic
+windows-1251
+x-europa
+x-ia5-german
+ibm737
+iso-8859-7
+x-mac-greek
+windows-1253
+ibm869
+dos-862
+iso-8859-8-i
+iso-8859-8
+x-mac-hebrew
+windows-1255
+x-ebcdic-arabic
+x-ebcdic-cyrillicrussian
+x-ebcdic-cyrillicserbianbulgarian
+x-ebcdic-denmarknorway
+x-ebcdic-denmarknorway-euro
+x-ebcdic-finlandsweden
+x-ebcdic-finlandsweden-euro
+x-ebcdic-france
+x-ebcdic-france-euro
+x-ebcdic-germany
+x-ebcdic-germany-euro
+x-ebcdic-greekmodern
+x-ebcdic-greek
+x-ebcdic-hebrew
+x-ebcdic-icelandic
+x-ebcdic-icelandic-euro
+x-ebcdic-international
+x-ebcdic-international-euro
+x-ebcdic-italy
+x-ebcdic-italy-euro
+x-ebcdic-japaneseandkana
+x-ebcdic-japaneseandjapaneselatin
+x-ebcdic-japaneseanduscanada
+x-ebcdic-japanesekatakana
+x-ebcdic-koreanandkoreanextended
+x-ebcdic-koreanextended
+cp870
+x-ebcdic-simplifiedchinese
+x-ebcdic-spain
+x-ebcdic-spain-euro
+x-ebcdic-thai
+x-ebcdic-traditionalchinese
+cp1026
+x-ebcdic-turkish
+x-ebcdic-uk
+x-ebcdic-uk-euro
+ebcdic-cp-us
+x-ebcdic-cp-us-euro
+ibm861
+x-mac-icelandic
+x-iscii-as
+x-iscii-be
+x-iscii-de
+x-iscii-gu
+x-iscii-ka
+x-iscii-ma
+x-iscii-or
+x-iscii-pa
+x-iscii-ta
+x-iscii-te
+euc-jp
+x-euc-jp
+iso-2022-jp
+iso-2022-jp
+csiso2022jp
+x-mac-japanese
+shift_jis
+ks_c_5601-1987
+euc-kr
+iso-2022-kr
+johab
+x-mac-korean
+iso-8859-3
+iso-8859-15
+x-ia5-norwegian
+ibm437
+x-ia5-swedish
+windows-874
+ibm857
+iso-8859-9
+x-mac-turkish
+windows-1254
+unicode
+unicodefffe
+utf-7
+utf-8
+us-ascii
+windows-1258
+ibm850
+x-ia5
+iso-8859-1
+macintosh
+windows-1252
+**CTDATA ccsids
+         0
+       720
+      1089
+         0
+      1256
+       775
+       914
+      1257
+       852
+       912
+         0
+         0
+         0
+         0
+         0
+         0
+       947
+      5056
+       950
+       950
+         0
+       866
+       915
+      1167
+      1168
+         0
+      1251
+      1252
+         0
+       737
+       813
+         0
+      1253
+       869
+       862
+       916
+       916
+         0
+      1255
+       420
+       880
+      1025
+       277
+      1142
+       278
+      1143
+       297
+      1147
+       273
+      1141
+       875
+       423
+       424
+       871
+      1149
+       500
+      1148
+       280
+      1144
+         0
+      9219
+         0
+       290
+         0
+         0
+       870
+         0
+       284
+      1145
+       838
+         0
+      1026
+       905
+       285
+      1146
+        37
+      1140
+       861
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+         0
+       970
+         0
+         0
+         0
+       913
+       923
+         0
+       437
+         0
+      1162
+       857
+       920
+      1281
+       920
+      1200
+      1201
+         0
+      1208
+       367
+      1258
+       850
+         0
+       819
+         0
+      1252

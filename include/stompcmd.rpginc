@@ -1,0 +1,223 @@
+**FREE
+
+/if defined(STOMP_COMMAND_H)
+/eof
+/endif
+
+/define STOMP_COMMAND_H
+
+
+///
+// STOMP Client : Commands
+//
+// This module contains procedures for the various STOMP commands.
+//
+// @author Mihael Schmidt
+// @date   26.07.2017
+// @project STOMP
+// @version 2.0
+// @link https://stomp.github.io
+// @link https://bitbucket.org/m1hael/stomp STOMP client
+///
+
+//                          The MIT License (MIT)
+// 
+// Copyright (c) 2021 Mihael Schmidt
+// 
+// Permission is hereby granted, free of charge, to any person obtaining a copy 
+// of this software and associated documentation files (the "Software"), to deal 
+// in the Software without restriction, including without limitation the rights 
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+// copies of the Software, and to permit persons to whom the Software is 
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in 
+// all copies or substantial portions of the Software.
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+// SOFTWARE.
+
+///
+// Connect to messaging system
+//
+// Connects this client to the configured messaging system with a CONNECT
+// frame. One client can connect to exactly one system at the same time.
+// <br><br>
+// The returned session id will be stored in the client and can be
+// queried with <em>stomp_getSessionId()</em>.
+// <br><br>
+// Any registered extension will be called on frame creation.
+// <br><br>
+// If the client cannot connect an escape message will be sent.
+//
+// @param Client
+// @param Username
+// @param Password
+//
+///
+dcl-pr stomp_command_connect extproc(*dclcase);
+  conn pointer const;
+  user varchar(100) const options(*nopass);
+  pass varchar(100) const options(*nopass);
+end-pr;
+
+///
+// Disconnect from server
+//
+// Sends a DISCONNECT frame to the server.
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+///
+dcl-pr stomp_command_disconnect extproc(*dclcase);
+  conn pointer const;
+end-pr;
+
+///
+// Send message
+//
+// Sends a SEND frame to the server with the passed message to the
+// passed destination (queue or topic).
+// <br><br>
+// The header <em>content-length</em> will always be added to the
+// frame.
+// <br><br>
+// Any registered extension will be called on frame creation.
+// <br><br>
+// The passed content type will overwrite the general content type setting on 
+// this client. 
+//
+// @param Client
+// @param Destination (queue or topic)
+// @param Message
+// @param Message length
+// @param Content Type
+//
+// @info If no message length is passed it will be assumed that the message is
+//       null-terminated.
+///
+dcl-pr stomp_command_send extproc(*dclcase);
+  conn pointer const;
+  destination varchar(100) const;
+  messageData pointer const options(*string);
+  messageLength uns(10) const options(*omit : *nopass);
+  contentType varchar(100) const options(*nopass);
+end-pr;
+
+///
+// Subscribe to queue or topic
+//
+// Subscribes this client to the passed destination (queue or topic).
+// <br> <br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+// @param Destination (queue or topic)
+///
+dcl-pr stomp_command_subscribe extproc(*dclcase);
+  conn pointer const;
+  destination varchar(100) const;
+end-pr;
+
+///
+// Unsubscribe from a queue or topic
+//
+// Sends an UNSUBSCRIBE frame to the server.
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+// @param Destination (queue or topic)
+///
+dcl-pr stomp_command_unsubscribe extproc(*dclcase);
+  client pointer const;
+  destination varchar(100) const;
+end-pr;
+
+///
+// Begin transaction
+//
+// Begins a transaction by sending a BEGIN frame to the server.
+// The specified transaction id will be automatically added to any MESSAGE and 
+// ACK frame.
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+// @param Transaction Id
+///
+dcl-pr stomp_command_begin extproc(*dclcase);
+  client pointer const;
+  transactionId varchar(100) const;
+end-pr;
+
+///
+// Commit transaction
+//
+// Commits a transaction on the server. The transaction has ended. Further 
+// MESSAGE frames are not part of a transaction till a new transaction has
+// been started.
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+///
+dcl-pr stomp_command_commit extproc(*dclcase);
+  client pointer const;
+end-pr;
+
+///
+// Abort transaction
+//
+// Aborts the transaction on the server. The transaction has ended.
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+///
+dcl-pr stomp_command_abort extproc(*dclcase);
+  client pointer const;
+end-pr;
+
+///
+// Acknowledge frame
+//
+// Sends an ACK frame to the server based on the passed frame. This must be done
+// if the ack mode is either "client" or "client-individual". In these modes the
+// server will wait for an ACK frame before it removes a message from a queue or
+// topic.
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+// @param Frame to be "acknowledged"
+//
+///
+dcl-pr stomp_command_ack extproc(*dclcase);
+  client pointer const;
+  frame pointer const;
+end-pr;
+
+///
+// Not acknowledge frame
+//
+// Sends a NACK frame to the server based on the passed frame. This can be used
+// to tell the server that this frame has not been processed and should stay on
+// the server. It is then up to the server how to handle this message (it may
+// pass the message to another client or put it in a backup queue).
+// <br><br>
+// Any registered extension will be called on frame creation.
+//
+// @param Client
+// @param Frame to be "not acknowledged"
+///
+dcl-pr stomp_command_nack extproc(*dclcase);
+  client pointer const;
+  frame pointer const;
+end-pr;

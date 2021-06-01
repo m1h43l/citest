@@ -27,6 +27,7 @@ ctl-opt nomain;
 
 /include 'ilecee.rpginc'
 /include 'libc_h.rpgle'
+/include 'llist/llist_h.rpgle'
 /include 'qusec.rpginc'
 /include 'stomp_h.rpginc'
 /include 'stompcmd.rpginc'
@@ -70,8 +71,9 @@ end-proc;
 dcl-proc stomp_command_connect export;
   dcl-pi *N;
     conn pointer const;
-    user varchar(100) const options(*nopass);
-    pass varchar(100) const options(*nopass);
+    user varchar(100) const options(*omit : *nopass);
+    pass varchar(100) const options(*omit : *nopass);
+    p_headers pointer const options(*nopass);
   end-pi;
   
   dcl-s frame pointer;
@@ -81,13 +83,27 @@ dcl-proc stomp_command_connect export;
   dcl-s rc int(10);
   dcl-s optionPtr pointer;
   dcl-s abnormallyEnded ind;
-
+  dcl-s headers pointer;
+  dcl-ds header likeds(stomp_frame_header_t) based(headerPtr);
+  
   frame = stomp_frame_create('CONNECT');
   if (%parms() >= 2);
     stomp_frame_setHeader(frame : 'login' : user);
   endif;
-  if (%parms() = 3);
+  if (%parms() >= 3);
     stomp_frame_setHeader(frame : 'passcode' : pass);
+  endif;
+  if (%parms() >= 4);
+    headers = p_headers;
+    
+    headerPtr = list_iterate(headers);
+    dow (headerPtr <> *null);
+      stomp_frame_setHeader(frame : header.key : header.value);
+      
+      headerPtr = list_iterate(headers);
+    enddo;
+    
+    list_dispose(headers);
   endif;
   
   stomp_frame_setHeader(frame : 'accept-version' : '1.2');
@@ -174,12 +190,15 @@ dcl-proc stomp_command_send export;
     queue varchar(100) const;
     message pointer const options(*string);
     messageLength uns(10) const options(*omit : *nopass);
-    contentType varchar(100) const options(*nopass);
+    contentType varchar(100) const options(*omit : *nopass);
+    p_headers pointer const options(*nopass);
   end-pi;
   
   dcl-s frame pointer;
   dcl-s optionPtr pointer;
   dcl-s transactionId varchar(100);
+  dcl-s headers pointer;
+  dcl-ds header likeds(stomp_frame_header_t) based(headerPtr);
 
   frame = stomp_frame_create('SEND');
   stomp_frame_setHeader(frame : 'destination' : queue);
@@ -187,7 +206,7 @@ dcl-proc stomp_command_send export;
   if (%parms() = 3 or (%parms() >= 4 and %addr(messageLength) = *null));
     stomp_frame_setBody(frame : message);
     stomp_frame_setHeader(frame : 'content-length' : %char(strlen(message)));
-  elseif (%parms() = 5);
+  elseif (%parms() >= 4 and %addr(messageLength) <> *null);
     stomp_frame_setBody(frame : message : messageLength);
     stomp_frame_setHeader(frame : 'content-length' : %char(messageLength));
   endif;
@@ -197,15 +216,26 @@ dcl-proc stomp_command_send export;
     stomp_frame_setHeader(frame : 'persistent' :  %str(optionPtr : 1000));
   endif;
  
-  if (not stomp_frame_containsHeader(frame : 'content-type'));
-    if (%parms() = 5);
-      stomp_frame_setHeader(frame : 'content-type' : contentType);
-    elseif (stomp_hasOption(conn : STOMP_OPTION_CONTENT_TYPE));
-      optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_CONTENT_TYPE);
-      stomp_frame_setHeader(frame : 'content-type' : %str(optionPtr : 1000));
-    endif;
+  if (%parms() >= 5 and %addr(contentType) <> *null);
+    stomp_frame_setHeader(frame : 'content-type' : contentType);
+  elseif (stomp_hasOption(conn : STOMP_OPTION_CONTENT_TYPE));
+    optionPtr = stomp_getOptionValue(conn : STOMP_OPTION_CONTENT_TYPE);
+    stomp_frame_setHeader(frame : 'content-type' : %str(optionPtr : 1000));
   endif;
  
+  if (%parms() >= 6);
+    headers = p_headers;
+    
+    headerPtr = list_iterate(headers);
+    dow (headerPtr <> *null);
+      stomp_frame_setHeader(frame : header.key : header.value);
+      
+      headerPtr = list_iterate(headers);
+    enddo;
+    
+    list_dispose(headers);
+  endif;
+  
   transactionId = stomp_getTransactionId(conn);
   if (transactionId <> *blank);
     stomp_frame_setHeader(frame : 'transaction' : transactionId);
@@ -216,7 +246,7 @@ dcl-proc stomp_command_send export;
       stomp_ext_send(stomp_getExtension(conn) : conn : frame : queue : message);
     elseif (%parms() = 4);
       stomp_ext_send(stomp_getExtension(conn) : conn : frame : queue : message : messageLength);
-    elseif (%parms() = 5);
+    elseif (%parms() >= 5);
       stomp_ext_send(stomp_getExtension(conn) : conn : frame : queue : message : messageLength : contentType);
     endif;
   endif;
@@ -233,14 +263,30 @@ dcl-proc stomp_command_subscribe export;
   dcl-pi *N;
     conn pointer const;
     queue varchar(100) const;
+    p_headers pointer const options(*nopass);
   end-pi;
   
   dcl-s frame pointer;
   dcl-s optionPtr pointer;
-
+  dcl-s headers pointer;
+  dcl-ds header likeds(stomp_frame_header_t) based(headerPtr);
+  
   frame = stomp_frame_create('SUBSCRIBE');
   stomp_frame_setHeader(frame : 'destination' : queue);
-
+  
+  if (%parms() >= 3);
+    headers = p_headers;
+    
+    headerPtr = list_iterate(headers);
+    dow (headerPtr <> *null);
+      stomp_frame_setHeader(frame : header.key : header.value);
+      
+      headerPtr = list_iterate(headers);
+    enddo;
+    
+    list_dispose(headers);
+  endif;
+  
   if (stomp_hasOption(conn : STOMP_OPTION_DURABLE_SUBSCRIBER));
     optionPtr = stomp_getOptionValue(conn:STOMP_OPTION_DURABLE_SUBSCRIBER);
     stomp_frame_setHeader(frame : 'durable-subscriber-name' : %str(optionPtr));
@@ -416,4 +462,47 @@ dcl-proc stomp_command_nack export;
   stomp_frame_finalize(nackFrame);
   
   stomp_log(logger : 'nack frame ' + frameId);
+end-proc;
+
+
+dcl-proc stomp_command_createHeaderList export;
+  dcl-pi *n pointer;
+    key1 like(stomp_frame_header_key) const;
+    value1 like(stomp_frame_header_value) const;
+    key2 like(stomp_frame_header_key) const options(*nopass);
+    value2 like(stomp_frame_header_value) const options(*nopass);
+    key3 like(stomp_frame_header_key) const options(*nopass);
+    value3 like(stomp_frame_header_value) const options(*nopass);
+    key4 like(stomp_frame_header_key) const options(*nopass);
+    value4 like(stomp_frame_header_value) const options(*nopass);
+  end-pi;
+  
+  dcl-s headers pointer;
+  dcl-ds header likeds(stomp_frame_header_t) inz;
+  
+  headers = list_create();
+  
+  header.key = key1;
+  header.value = value1;
+  list_add(headers : %addr(header) : %size(header));
+  
+  if (%parms() >= 4);
+    header.key = key2;
+    header.value = value2;
+    list_add(headers : %addr(header) : %size(header));
+  endif;
+  
+  if (%parms() >= 6);
+    header.key = key3;
+    header.value = value3;
+    list_add(headers : %addr(header) : %size(header));
+  endif;
+  
+  if (%parms() >= 8);
+    header.key = key4;
+    header.value = value4;
+    list_add(headers : %addr(header) : %size(header));
+  endif;
+  
+  return headers;
 end-proc;

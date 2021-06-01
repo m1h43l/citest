@@ -1,6 +1,9 @@
 **FREE
 
-/if not defined (STOMP_UTIL_H)
+/if defined (STOMP_UTIL_H)
+/eof
+/endif
+
 /define STOMP_UTIL_H
 
 //                          The MIT License (MIT)
@@ -25,6 +28,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
+
+/include 'stompframe.rpginc'
+
+
 dcl-ds stomp_util_buffer_t qualified template;
   data pointer;
   length uns(10);
@@ -48,5 +55,3 @@ end-pr;
 dcl-pr stomp_util_getExplicitCharset varchar(100) extproc(*dclcase);
   frame pointer const;
 end-pr;
-  
-/endif

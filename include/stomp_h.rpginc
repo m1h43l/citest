@@ -84,8 +84,8 @@ dcl-c STOMP_OPTION_VIRTUAL_HOST 8;
 dcl-c STOMP_MIME_BINARY 'application/octet-stream';
 dcl-c STOMP_MIME_TEXT 'text/plain';
 dcl-c STOMP_MIME_HTML 'text/html';
-dcl-c STOMP_MIME_XML 'application/xml';
-dcl-c STOMP_MIME_JSON 'application/json';
+dcl-c STOMP_MIME_XML 'application/xml;charset=utf-8';
+dcl-c STOMP_MIME_JSON 'application/json;charset=utf-8';
 dcl-c STOMP_MAX_FRAME_SIZE 1000000;
 dcl-c STOMP_HEARTBEAT_NONE 0;
 

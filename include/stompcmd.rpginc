@@ -58,12 +58,13 @@
 // @param Client
 // @param Username
 // @param Password
-//
+// @param Additional STOMP headers
 ///
 dcl-pr stomp_command_connect extproc(*dclcase);
   conn pointer const;
-  user varchar(100) const options(*nopass);
-  pass varchar(100) const options(*nopass);
+  user varchar(100) const options(*omit : *nopass);
+  pass varchar(100) const options(*omit : *nopass);
+  headers pointer const options(*nopass);
 end-pr;
 
 ///
@@ -98,6 +99,7 @@ end-pr;
 // @param Message
 // @param Message length
 // @param Content Type
+// @param Additional STOMP headers
 //
 // @info If no message length is passed it will be assumed that the message is
 //       null-terminated.
@@ -107,7 +109,8 @@ dcl-pr stomp_command_send extproc(*dclcase);
   destination varchar(100) const;
   messageData pointer const options(*string);
   messageLength uns(10) const options(*omit : *nopass);
-  contentType varchar(100) const options(*nopass);
+  contentType varchar(100) const options(*omit : *nopass);
+  headers pointer const options(*nopass);
 end-pr;
 
 ///
@@ -119,10 +122,12 @@ end-pr;
 //
 // @param Client
 // @param Destination (queue or topic)
+// @param Additional STOMP headers
 ///
 dcl-pr stomp_command_subscribe extproc(*dclcase);
   conn pointer const;
   destination varchar(100) const;
+  headers pointer const options(*nopass);
 end-pr;
 
 ///
@@ -220,4 +225,35 @@ end-pr;
 dcl-pr stomp_command_nack extproc(*dclcase);
   client pointer const;
   frame pointer const;
+end-pr;
+
+///
+// Create header list
+//
+// Creates a list of additional STOMP headers to be used on the commands SEND, SUBSCRIBE and CONNECT.
+// Incomplete key/value pairs will be ignored (f. e. a key without a value).
+//
+// @param Key 1
+// @param Value 1
+// @param Key 2
+// @param Value 2
+// @param Key 3
+// @param Value 3
+// @param Key 4
+// @param Value 4
+//
+// @info The caller of this procedure must make sure to free the resources of this list with 
+//       calling <em>list_dispose</em>.
+// @info If used directly with the stomp_command_xyz procedures these procedures will free any
+//       passed additional header list. There is no need then to call <em>list_dispose</em>.
+///
+dcl-pr stomp_command_createHeaderList pointer extproc(*dclcase);
+  key1 like(stomp_frame_header_key) const;
+  value1 like(stomp_frame_header_value) const;
+  key2 like(stomp_frame_header_key) const options(*nopass);
+  value2 like(stomp_frame_header_value) const options(*nopass);
+  key3 like(stomp_frame_header_key) const options(*nopass);
+  value3 like(stomp_frame_header_value) const options(*nopass);
+  key4 like(stomp_frame_header_key) const options(*nopass);
+  value4 like(stomp_frame_header_value) const options(*nopass);
 end-pr;

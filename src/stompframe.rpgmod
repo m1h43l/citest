@@ -1,6 +1,5 @@
 **FREE
 
-
 //                          The MIT License (MIT)
 // 
 // Copyright (c) 2021 Mihael Schmidt
@@ -363,10 +362,42 @@ dcl-proc stomp_frame_serialize export;
   dcl-s charset varchar(100);
   dcl-s ccsid int(10);
   dcl-ds convBuffer likeds(stomp_util_buffer_t) inz;
+  dcl-s isBinaryContent ind inz(*off);
   
   if (not isValidFrame(framePtr));
     message_escape('STOMP frame is not valid');
   endif;
+  
+  
+  // convert content/body
+  if (frame.body <> *null);
+    if (frame.command = 'SEND' or frame.command = 'MESSAGE' or frame.command = 'ERROR');
+    
+      charset = stomp_util_getExplicitCharset(framePtr);
+
+      if (stomp_util_hasBinaryContent(framePtr));
+        // no conversion => copy raw bytes
+        isBinaryContent = *on;
+        stomp_frame_setHeader(framePtr : 'content-length' : %char(frame.bodyLength));
+      elseif (charset <> *blank);
+        // convert to charset
+        ccsid = stomp_mime_charsetToCcsid(charset);
+        if (ccsid = 0);
+          ccsid = 1208; // fallback to utf-8
+        endif;
+        
+        convBuffer = stomp_util_convert(frame.body : frame.bodyLength : ccsid);
+        stomp_frame_setHeader(framePtr : 'content-length' : %char(convBuffer.length));
+      else;
+        // convert to UTF8
+        utf8data = %subst(data : 1 : frame.bodyLength);
+        convBuffer = stomp_util_buffer_create(%len(utf8data) : %addr(utf8data : *data));
+        stomp_frame_setHeader(framePtr : 'content-length' : %char(convBuffer.length));
+      endif;
+      
+    endif;    
+  endif;
+  
   
   serialized.data = %alloc(STOMP_MAX_FRAME_SIZE);
   memset(serialized.data : 0 : STOMP_MAX_FRAME_SIZE);
@@ -394,40 +425,19 @@ dcl-proc stomp_frame_serialize export;
   memcpy(sPtr : %addr(buffer : *data) : %len(buffer));
   serialized.length += %len(buffer);
   
-  // add content/body
+  // add body to buffer
   if (frame.body <> *null);
     if (frame.command = 'SEND' or frame.command = 'MESSAGE' or frame.command = 'ERROR');
-    
-      charset = stomp_util_getExplicitCharset(framePtr);
-
-      if (stomp_util_hasBinaryContent(framePtr));
-        // no conversion => copy raw bytes
+      if (isBinaryContent);
         sPtr = serialized.data + serialized.length;
         memcpy(sPtr : frame.body : frame.bodyLength);
         serialized.length += frame.bodyLength;
-      elseif (charset <> *blank);
-        // convert to charset
-        ccsid = stomp_mime_charsetToCcsid(charset);
-        if (ccsid = 0);
-          ccsid = 1208; // fallback to utf-8
-        endif;
-        
-        convBuffer = stomp_util_convert(frame.body : frame.bodyLength : ccsid);
-        
+      elseif (convBuffer.length > 0);
         sPtr = serialized.data + serialized.length;
         memcpy(sPtr : convBuffer.data : convBuffer.length);
         serialized.length += convBuffer.length;
-        
-        stomp_util_buffer_dispose(convBuffer);
-      else;
-        // convert to UTF8
-        sPtr = serialized.data + serialized.length;
-        utf8data = %subst(data : 1 : frame.bodyLength);
-        memcpy(sPtr : %addr(utf8data : *data) : %len(utf8data));
-        serialized.length += %len(utf8data);
       endif;
-      
-    endif;    
+    endif;
   endif;
   
   // add terminating null
@@ -436,6 +446,9 @@ dcl-proc stomp_frame_serialize export;
   serialized.length += 1;
   
   return serialized;
+  
+  on-exit;
+    stomp_util_buffer_dispose(convBuffer);
 end-proc;
 
 

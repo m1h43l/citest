@@ -205,10 +205,8 @@ dcl-proc stomp_command_send export;
   
   if (%parms() = 3 or (%parms() >= 4 and %addr(messageLength) = *null));
     stomp_frame_setBody(frame : message);
-    stomp_frame_setHeader(frame : 'content-length' : %char(strlen(message)));
   elseif (%parms() >= 4 and %addr(messageLength) <> *null);
     stomp_frame_setBody(frame : message : messageLength);
-    stomp_frame_setHeader(frame : 'content-length' : %char(messageLength));
   endif;
  
   if (stomp_hasOption(conn : STOMP_OPTION_PERSISTENT));

@@ -70,9 +70,9 @@ dcl-s stomp_receiptid_t varchar(50) template;
 //
 // Constants
 //
-dcl-c STOMP_ACK_MODE_AUTO 'auto';
-dcl-c STOMP_ACK_MODE_CLIENT 'client';
-dcl-c STOMP_ACK_MODE_CLIENT_INDIVIDUAL 'client-individual';
+dcl-c STOMP_ACK_MODE_AUTO %ucs2('auto');
+dcl-c STOMP_ACK_MODE_CLIENT %ucs2('client');
+dcl-c STOMP_ACK_MODE_CLIENT_INDIVIDUAL %ucs2('client-individual');
 dcl-c STOMP_OPTION_TIMEOUT 1;
 dcl-c STOMP_OPTION_CLIENT_ID 2;
 dcl-c STOMP_OPTION_ACK 3;
@@ -81,11 +81,11 @@ dcl-c STOMP_OPTION_DURABLE_SUBSCRIBER 5;
 dcl-c STOMP_OPTION_CONTENT_TYPE 6;
 dcl-c STOMP_OPTION_CHARSET 7;
 dcl-c STOMP_OPTION_VIRTUAL_HOST 8;
-dcl-c STOMP_MIME_BINARY 'application/octet-stream';
-dcl-c STOMP_MIME_TEXT 'text/plain';
-dcl-c STOMP_MIME_HTML 'text/html';
-dcl-c STOMP_MIME_XML 'application/xml;charset=utf-8';
-dcl-c STOMP_MIME_JSON 'application/json;charset=utf-8';
+dcl-c STOMP_MIME_BINARY %ucs2('application/octet-stream');
+dcl-c STOMP_MIME_TEXT %ucs2('text/plain');
+dcl-c STOMP_MIME_HTML %ucs2('text/html');
+dcl-c STOMP_MIME_XML %ucs2('application/xml;charset=utf-8');
+dcl-c STOMP_MIME_JSON %ucs2('application/json;charset=utf-8');
 dcl-c STOMP_MAX_FRAME_SIZE 1000000;
 dcl-c STOMP_HEARTBEAT_NONE 0;
 

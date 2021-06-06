@@ -33,6 +33,7 @@
 ctl-opt nomain;
 
 
+/include 'libc_h.rpgle'
 /include 'iconv_h.rpgle'
 /include 'message/message_h.rpgle'
 /include 'mimetype.rpginc'
@@ -40,6 +41,25 @@ ctl-opt nomain;
 /include 'stompframe.rpginc'
 /include 'stomputil.rpginc'
 /include 'string.rpginc'
+
+
+dcl-proc stomp_util_buffer_create export;
+  dcl-pi *n likeds(stomp_util_buffer_t);
+    size uns(10) const;
+    data pointer const options(*nopass);
+  end-pi;
+  
+  dcl-ds buffer likeds(stomp_util_buffer_t) inz;
+  
+  buffer.data = %alloc(size);
+  buffer.length = size;
+  
+  if (%parms() >= 2);
+    memcpy(buffer.data : data : size);
+  endif;
+  
+  return buffer;
+end-proc;
 
 
 dcl-proc stomp_util_buffer_dispose export;

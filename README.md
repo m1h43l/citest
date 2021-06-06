@@ -37,9 +37,8 @@ The client API is divided into many smaller modules:
 - STOMPPARSE - buiding a frame from its serialized state
 - STOMPUTIL - utility procedures
 
-Using this STOMP client starts with the main module. A client instance has to be 
-created with the `stomp_create` procedure which returns a handle which is used on 
-every later call.
+Using this STOMP client starts with creating a client instance with the 
+`stomp_create` procedure which returns a handle which is used on every later call.
 
     client = stomp_create('localhost' : 61613);
 
@@ -105,20 +104,22 @@ This software package has the following dependencies:
 
 ## Installation
 
-For standard installation the setup script can be executed as is. This will 
-build the service program in the library *OSSILE*. If you want to build the
-service program in any other library export the library name in the variable
-`TARGET_LIB` like this
+For standard installation the tool `make` is used. The `Makefile` contains all
+instructions for compilation.
 
-    export TARGET_LIB=MIHAEL
+    make
 
-*before* executing the *setup* script.
+will compile the module and bind the service program. You can specify the
+target library as following
 
-As this service program relies on other libraries the place for the copybook
-needs to be stated. This is also be the place where the copybooks of the
-STOMP serviceprogram will be copied to.
+    make BIN_LIB=MYLIB compile
 
-    export INCDIR=/usr/local/include/
+As this project depends on several other projects it needs the copybooks of 
+these projects. The Makefile assumes that the copybooks are placed in the 
+directory `/usr/local/include`. You can specify another directory like this
+
+    make INCDIR=/home/mihael/include 
+
 
 ## Documentation
 
@@ -128,4 +129,4 @@ hosted at rpgnextgen.com.
 ## Links
 
 - [ActiveMQ](https://activemq.apache.org)
-- [STOMP](https://github.com/stomp/stomp-spec)
+- [STOMP](https://stomp.github.io/)

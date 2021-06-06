@@ -37,6 +37,11 @@ dcl-ds stomp_util_buffer_t qualified template;
   length uns(10);
 end-ds;
 
+dcl-pr stomp_util_buffer_create likeds(stomp_util_buffer_t) extproc(*dclcase);
+  size uns(10) const;
+  data pointer const options(*nopass);
+end-pr;
+
 dcl-pr stomp_util_buffer_dispose extproc(*dclcase);
   buffer likeds(stomp_util_buffer_t);
 end-pr;

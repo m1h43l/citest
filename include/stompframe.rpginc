@@ -10,10 +10,6 @@
 // STOMP : Frame Module
 //
 // This module provides procedures for creating and querying a stomp frame.
-// <br><br>
-// Log entries will be written via the logger <em>rpgnextgen.stomp.frame</em>.
-// There is no appender configured for this logger. Feel free to add log appenders
-// for this logger.
 //
 // @author Mihael Schmidt
 // @date   26.07.2017
@@ -22,7 +18,7 @@
 
 //                          The MIT License (MIT)
 // 
-// Copyright (c) 2017 Mihael Schmidt
+// Copyright (c) 2021 Mihael Schmidt
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy 
 // of this software and associated documentation files (the "Software"), to deal 
@@ -97,7 +93,7 @@ end-pr;
 //
 // Sets a header (key and value) on the passed stomp frame.
 // 
-// @info If this header already exists its value will be appended to the list of
+// @info If this header already exists its value will be prepended to the list of
 //       headers. STOMP Spec 1.2 supports multiple headers with the same key.
 //
 // @param Frame
